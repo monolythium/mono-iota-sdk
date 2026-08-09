@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use iota_types::{
@@ -276,6 +277,9 @@ impl Verifier<UserSignature> for UserSignatureVerifier {
             UserSignature::MoveAuthenticator(_) => Err(SignatureError::from_source(
                 "move authenticators cannot be verified",
             )),
+            UserSignature::MlDsa65Authenticator(_) => Err(SignatureError::from_source(
+                "ML-DSA-65 authenticators require transaction context",
+            )),
             _ => Err(SignatureError::from_source("unknown signature scheme")),
         }
     }
@@ -407,7 +411,9 @@ fn multisig_pubkey_and_signature_from_user_signature(
             passkey_authenticator.clone().into(),
             passkey_authenticator.into(),
         )),
-        UserSignature::Multisig(_) | UserSignature::MoveAuthenticator(_) => {
+        UserSignature::Multisig(_)
+        | UserSignature::MoveAuthenticator(_)
+        | UserSignature::MlDsa65Authenticator(_) => {
             Err(SignatureError::from_source("invalid signature scheme"))
         }
         _ => Err(SignatureError::from_source("unknown signature scheme")),

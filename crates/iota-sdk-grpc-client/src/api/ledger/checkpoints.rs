@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! High-level API for checkpoint queries.
@@ -16,7 +17,8 @@ use std::pin::Pin;
 
 use futures::{Stream, StreamExt};
 use iota_grpc_types::v1::{
-    checkpoint, event, filter as grpc_filter,
+    checkpoint::{self, CheckpointAuthentication as ProtoCheckpointAuthentication},
+    event, filter as grpc_filter,
     ledger_service::{
         GetCheckpointRequest, StreamCheckpointsRequest, checkpoint_data, get_checkpoint_request,
     },
@@ -475,6 +477,7 @@ impl Client {
             let mut current_sequence_number: Option<CheckpointSequenceNumber> = None;
             let mut current_summary: Option<checkpoint::CheckpointSummary> = None;
             let mut current_signature: Option<ProtoValidatorAggregatedSignature> = None;
+            let mut current_authentication: Option<ProtoCheckpointAuthentication> = None;
             let mut current_contents: Option<checkpoint::CheckpointContents> = None;
             let mut current_transactions: Vec<ExecutedTransaction> = Vec::new();
             let mut current_events: Vec<event::Event> = Vec::new();
@@ -499,6 +502,10 @@ impl Client {
 
                         // Store proto signature (optional, no deserialization)
                         current_signature = checkpoint.signature;
+
+                        // Store versioned checkpoint authentication (optional,
+                        // no deserialization)
+                        current_authentication = checkpoint.authentication;
 
                         // Store proto contents (optional, no deserialization)
                         current_contents = checkpoint.contents;
@@ -547,6 +554,7 @@ impl Client {
                             sequence_number,
                             summary: current_summary.take(),
                             signature: current_signature.take(),
+                            authentication: current_authentication.take(),
                             contents: current_contents.take(),
                             executed_transactions: std::mem::take(&mut current_transactions),
                             events: std::mem::take(&mut current_events),

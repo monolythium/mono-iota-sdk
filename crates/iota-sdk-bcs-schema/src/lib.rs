@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
@@ -14,6 +15,9 @@ use syn::{
 };
 
 const DEFAULT_BCS_SCHEMA_FILE: &str = "bcs-schema.abnf";
+const MONO_SCHEMA_CRATE: &str = "iota-sdk-types";
+const MONO_SCHEMA_MODIFICATION_NOTICE: &str =
+    "; Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.\n";
 
 #[cfg(feature = "move-shape")]
 mod move_shape;
@@ -452,6 +456,22 @@ fn schema_file_path() -> std::path::PathBuf {
     std::path::PathBuf::from(manifest).join(DEFAULT_BCS_SCHEMA_FILE)
 }
 
+/// Build the generated header, adding the fork notice only to the canonical
+/// SDK-types schema that carries the Monolythium checkpoint extension.
+fn schema_header(path: &std::path::Path) -> String {
+    let mut header =
+        String::from("; Auto-generated BCS schema definitions\n; Do not edit manually\n");
+    if path
+        .parent()
+        .and_then(std::path::Path::file_name)
+        .and_then(std::ffi::OsStr::to_str)
+        == Some(MONO_SCHEMA_CRATE)
+    {
+        header.push_str(MONO_SCHEMA_MODIFICATION_NOTICE);
+    }
+    header
+}
+
 /// Built-in BCS primitive type definitions.
 ///
 /// These are seeded into every schema file so that the grammar is always
@@ -529,8 +549,7 @@ fn write_schema_entry(schema_name: &str, definition: &str) {
     entries.sort_by(|(a, _), (b, _)| a.cmp(b));
 
     // Reconstruct the file
-    let mut output =
-        String::from("; Auto-generated BCS schema definitions\n; Do not edit manually\n");
+    let mut output = schema_header(&path);
     for (_, def) in &entries {
         output.push('\n');
         output.push_str(def);
@@ -618,5 +637,14 @@ mod tests {
         );
         assert_eq!(to_kebab_case("UQ32_32"), "uq32-32");
         assert_eq!(to_kebab_case("UQ64_64"), "uq64-64");
+    }
+
+    #[test]
+    fn mono_notice_is_target_specific() {
+        let types = std::path::Path::new("crates/iota-sdk-types/bcs-schema.abnf");
+        assert!(schema_header(types).contains(MONO_SCHEMA_MODIFICATION_NOTICE));
+
+        let move_types = std::path::Path::new("crates/iota-sdk-move-types/bcs-schema.abnf");
+        assert!(!schema_header(move_types).contains(MONO_SCHEMA_MODIFICATION_NOTICE));
     }
 }

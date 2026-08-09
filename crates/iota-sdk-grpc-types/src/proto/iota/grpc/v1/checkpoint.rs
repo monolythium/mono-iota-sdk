@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 include!("../../../generated/iota.grpc.v1.checkpoint.rs");
@@ -52,6 +53,43 @@ impl CheckpointSummary {
     ///
     /// [`CHECKPOINT_SUMMARY_BCS`]: crate::read_masks::CHECKPOINT_SUMMARY_BCS
     pub fn summary(&self) -> Result<iota_types::CheckpointSummary, TryFromProtoError> {
+        self.try_into()
+    }
+}
+
+// CheckpointAuthentication
+
+impl From<iota_types::CheckpointAuthentication> for CheckpointAuthentication {
+    fn from(value: iota_types::CheckpointAuthentication) -> Self {
+        Self {
+            bcs: BcsData::serialize(&value).ok(),
+        }
+    }
+}
+
+impl TryFrom<&CheckpointAuthentication> for iota_types::CheckpointAuthentication {
+    type Error = TryFromProtoError;
+
+    fn try_from(value: &CheckpointAuthentication) -> Result<Self, Self::Error> {
+        let bcs = value
+            .bcs
+            .as_ref()
+            .ok_or_else(|| TryFromProtoError::missing(CheckpointAuthentication::BCS_FIELD.name))?;
+        BcsData::deserialize(bcs)
+            .map_err(|e| TryFromProtoError::invalid(CheckpointAuthentication::BCS_FIELD, e))
+    }
+}
+
+impl CheckpointAuthentication {
+    /// Deserialize the versioned checkpoint authentication from BCS.
+    ///
+    /// **Read mask:** `"checkpoint.authentication"` (see
+    /// [`CHECKPOINT_RESPONSE_AUTHENTICATION`]).
+    ///
+    /// [`CHECKPOINT_RESPONSE_AUTHENTICATION`]: crate::read_masks::CHECKPOINT_RESPONSE_AUTHENTICATION
+    pub fn authentication(
+        &self,
+    ) -> Result<iota_types::CheckpointAuthentication, TryFromProtoError> {
         self.try_into()
     }
 }

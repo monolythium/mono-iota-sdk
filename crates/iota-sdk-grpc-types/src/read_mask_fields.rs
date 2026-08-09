@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Read mask field path constants for gRPC endpoints.
@@ -391,6 +392,8 @@ impl CheckpointResponseField {
     pub const CHECKPOINT_CONTENTS_BCS: &str = "checkpoint.contents.bcs";
     /// The validator aggregated signature.
     pub const CHECKPOINT_SIGNATURE: &str = "checkpoint.signature";
+    /// The versioned checkpoint authentication.
+    pub const CHECKPOINT_AUTHENTICATION: &str = "checkpoint.authentication";
     /// All transactions in the checkpoint.
     pub const TRANSACTIONS: &str = "transactions";
     /// All events in the checkpoint.
@@ -610,6 +613,10 @@ mod tests {
         assert_eq!(
             CheckpointResponseField::CHECKPOINT_SUMMARY_BCS,
             "checkpoint.summary.bcs"
+        );
+        assert_eq!(
+            CheckpointResponseField::CHECKPOINT_AUTHENTICATION,
+            "checkpoint.authentication"
         );
         assert_eq!(CheckpointResponseField::TRANSACTIONS, "transactions");
         assert_eq!(CheckpointResponseField::EVENTS, "events");

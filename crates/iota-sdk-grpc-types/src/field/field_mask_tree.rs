@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use std::collections::BTreeMap;
@@ -208,11 +209,7 @@ impl FieldMaskTree {
 
         let mut node = &self.root;
         for component in path.split(FIELD_SEPARATOR) {
-            if let Some(child) = node.children.get(component) {
-                node = child;
-            } else {
-                return None;
-            }
+            node = node.children.get(component)?;
         }
 
         if std::ptr::eq(node, &self.root) {

@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Roundtrip conversion tests for gRPC proto types <-> iota-sdk-types.
@@ -230,6 +231,63 @@ fn validator_aggregated_signature_roundtrip() {
         bcs::to_bytes(&original).unwrap(),
         bcs::to_bytes(&back).unwrap()
     );
+}
+
+// ---------------------------------------------------------------------------
+// CheckpointAuthentication (BCS-based roundtrip)
+// ---------------------------------------------------------------------------
+
+fn validator_aggregated_signature_fixture() -> iota_types::ValidatorAggregatedSignature {
+    let bcs_bytes = base64ct::Base64::decode_vec(
+        "CgAAAAAAAACZrBcXiqa0ttztfwrBxKzQRzIRnZhbmsQV7tqNXwiZQrRC+dVDbdua1Ety9uy2pCUSOjAAAAEAAAAAAAAAEAAAAAAA",
+    )
+    .unwrap();
+    bcs::from_bytes(&bcs_bytes).unwrap()
+}
+
+#[test]
+fn legacy_checkpoint_authentication_roundtrip_and_golden_bcs() {
+    let original = iota_types::CheckpointAuthentication::IotaValidatorAggregatedSignature(
+        validator_aggregated_signature_fixture(),
+    );
+
+    let proto: v1::checkpoint::CheckpointAuthentication = original.clone().into();
+    assert_eq!(
+        base64ct::Base64::encode_string(proto.bcs.as_ref().unwrap().as_bytes()),
+        "AAoAAAAAAAAAmawXF4qmtLbc7X8KwcSs0EcyEZ2YW5rEFe7ajV8ImUK0QvnVQ23bmtRLcvbstqQlEjowAAABAAAAAAAAABAAAAAAAA=="
+    );
+    let back: iota_types::CheckpointAuthentication = (&proto).try_into().unwrap();
+
+    assert_eq!(original, back);
+}
+
+#[test]
+fn mono_checkpoint_authentication_roundtrip_and_golden_bcs() {
+    let original = iota_types::CheckpointAuthentication::MonoClusterAuthenticationV1(
+        iota_types::MonoCheckpointAuthenticationBytes::new(vec![1, 2, 3]).unwrap(),
+    );
+
+    let proto: v1::checkpoint::CheckpointAuthentication = original.clone().into();
+    assert_eq!(proto.bcs.as_ref().unwrap().as_bytes(), &[1, 3, 1, 2, 3]);
+    let back: iota_types::CheckpointAuthentication = (&proto).try_into().unwrap();
+
+    assert_eq!(original, back);
+}
+
+#[test]
+fn oversized_mono_checkpoint_authentication_is_rejected() {
+    let mut bytes = vec![1];
+    bytes.extend(
+        bcs::to_bytes(&vec![
+            0_u8;
+            iota_types::MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES
+                + 1
+        ])
+        .unwrap(),
+    );
+    let proto = v1::checkpoint::CheckpointAuthentication::default().with_bcs(bytes);
+
+    assert!(proto.authentication().is_err());
 }
 
 // ---------------------------------------------------------------------------

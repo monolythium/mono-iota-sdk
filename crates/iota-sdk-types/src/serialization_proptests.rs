@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use test_strategy::proptest;
@@ -43,6 +44,9 @@ where
 }
 
 serialization_test!(Address);
+serialization_test!(AuthenticatedCheckpointData);
+serialization_test!(AuthenticatedCheckpointSummary);
+serialization_test!(CheckpointAuthentication);
 serialization_test!(CheckpointCommitment);
 serialization_test!(CheckpointContents);
 serialization_test!(CheckpointContentsV1);
@@ -54,6 +58,7 @@ serialization_test!(CheckpointTransaction);
 serialization_test!(CheckpointTransactionInfo);
 serialization_test!(EndOfEpochData);
 serialization_test!(SignedCheckpointSummary);
+serialization_test!(MonoCheckpointAuthenticationBytes);
 serialization_test!(Bls12381PublicKey);
 serialization_test!(Bls12381Signature);
 serialization_test!(Ed25519PublicKey);

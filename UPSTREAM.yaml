@@ -67,6 +67,27 @@ overlay_policy:
         - crates/iota-sdk-types/src/lib.rs
         - crates/iota-sdk-types/tests/**
         - crates/iota-sdk-crypto/src/multisig.rs
+    - id: MONO-SDK-CHECKPOINT-AUTH-001
+      license: Apache-2.0
+      paths:
+        - crates/iota-sdk-bcs-schema/src/lib.rs
+        - crates/iota-sdk-types/bcs-schema.abnf
+        - crates/iota-sdk-types/src/checkpoint.rs
+        - crates/iota-sdk-types/src/lib.rs
+        - crates/iota-sdk-types/src/serialization_proptests.rs
+        - crates/iota-sdk-types/tests/bcs_schema_fuzzing.rs
+        - crates/iota-sdk-grpc-types/proto/iota/grpc/v1/checkpoint.proto
+        - crates/iota-sdk-grpc-types/src/proto/generated/iota.grpc.v1.checkpoint.*.rs
+        - crates/iota-sdk-grpc-types/src/proto/generated/iota.grpc.v1.checkpoint.rs
+        - crates/iota-sdk-grpc-types/src/field/field_mask_tree.rs
+        - crates/iota-sdk-grpc-types/src/proto/iota/grpc/v1/checkpoint.rs
+        - crates/iota-sdk-grpc-types/src/read_mask_fields.rs
+        - crates/iota-sdk-grpc-types/src/read_masks.rs
+        - crates/iota-sdk-grpc-types/tests/conversion_roundtrip.rs
+        - crates/iota-sdk-grpc-proto-build/update_grpc_types.sh
+        - crates/iota-sdk-grpc-client/src/lib.rs
+        - crates/iota-sdk-grpc-client/src/api/ledger/checkpoints.rs
+        - crates/iota-sdk-grpc-client/src/api/mod.rs
 
 validation:
   workflow: .github/workflows/mono-ci.yml

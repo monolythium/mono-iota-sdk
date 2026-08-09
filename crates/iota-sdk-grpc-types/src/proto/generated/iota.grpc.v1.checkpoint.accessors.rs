@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 mod _accessor_impls {
@@ -31,6 +32,24 @@ mod _accessor_impls {
             T: Into<super::super::signatures::ValidatorAggregatedSignature>,
         >(mut self, field: T) -> Self {
             self.signature = Some(field.into());
+            self
+        }
+        /// Sets `authentication` with the provided value.
+        pub fn with_authentication<T: Into<super::CheckpointAuthentication>>(
+            mut self,
+            field: T,
+        ) -> Self {
+            self.authentication = Some(field.into());
+            self
+        }
+    }
+    impl super::CheckpointAuthentication {
+        /// Sets `bcs` with the provided value.
+        pub fn with_bcs<T: Into<super::super::bcs::BcsData>>(
+            mut self,
+            field: T,
+        ) -> Self {
+            self.bcs = Some(field.into());
             self
         }
     }

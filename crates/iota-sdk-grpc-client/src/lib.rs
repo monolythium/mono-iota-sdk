@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! gRPC client for IOTA node operations.
@@ -41,6 +42,9 @@ pub use api::{
     // CheckpointResponse per-method masks
     CHECKPOINT_CONTENTS_BCS,
     CHECKPOINT_CONTENTS_DIGEST,
+    CHECKPOINT_RESPONSE_AUTHENTICATED_CHECKPOINT_DATA,
+    CHECKPOINT_RESPONSE_AUTHENTICATED_SUMMARY,
+    CHECKPOINT_RESPONSE_AUTHENTICATION,
     CHECKPOINT_RESPONSE_CHECKPOINT_DATA,
     CHECKPOINT_RESPONSE_CONTENTS,
     CHECKPOINT_RESPONSE_EVENTS,

@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Read mask constants for the gRPC API.
@@ -126,6 +127,13 @@ pub const CHECKPOINT_RESPONSE_SUMMARY: &str = field_mask!("checkpoint.summary");
 /// Includes the validator aggregated signature for the checkpoint.
 pub const CHECKPOINT_RESPONSE_SIGNATURE: &str = field_mask!("checkpoint.signature");
 
+/// Read mask for `CheckpointResponse::authentication()`.
+///
+/// Includes both the versioned authentication and legacy validator signature
+/// fields so the accessor can enforce consistency and support legacy fallback.
+pub const CHECKPOINT_RESPONSE_AUTHENTICATION: &str =
+    field_mask!("checkpoint.authentication", "checkpoint.signature",);
+
 /// Read mask for `CheckpointResponse::contents()`.
 ///
 /// Includes the checkpoint contents (digest + BCS).
@@ -149,6 +157,16 @@ pub const CHECKPOINT_RESPONSE_EVENTS: &str = field_mask!("events");
 pub const CHECKPOINT_RESPONSE_SIGNED_SUMMARY: &str =
     field_mask!("checkpoint.summary.bcs", "checkpoint.signature",);
 
+/// Read mask for `CheckpointResponse::authenticated_summary()`.
+///
+/// Includes the checkpoint summary BCS plus both supported authentication
+/// transport fields.
+pub const CHECKPOINT_RESPONSE_AUTHENTICATED_SUMMARY: &str = field_mask!(
+    "checkpoint.summary.bcs",
+    "checkpoint.authentication",
+    "checkpoint.signature",
+);
+
 /// Read mask for `CheckpointResponse::checkpoint_data()`.
 ///
 /// Contains the minimum set of fields required to build a full
@@ -157,6 +175,23 @@ pub const CHECKPOINT_RESPONSE_SIGNED_SUMMARY: &str =
 /// events, and input/output objects.
 pub const CHECKPOINT_RESPONSE_CHECKPOINT_DATA: &str = field_mask!(
     "checkpoint.summary.bcs",
+    "checkpoint.signature",
+    "checkpoint.contents.bcs",
+    "transactions.transaction.bcs",
+    "transactions.signatures",
+    "transactions.effects.bcs",
+    "transactions.events.events.bcs",
+    "transactions.input_objects.bcs",
+    "transactions.output_objects.bcs",
+);
+
+/// Read mask for `CheckpointResponse::authenticated_checkpoint_data()`.
+///
+/// Contains the full checkpoint data mask with both supported authentication
+/// transport fields.
+pub const CHECKPOINT_RESPONSE_AUTHENTICATED_CHECKPOINT_DATA: &str = field_mask!(
+    "checkpoint.summary.bcs",
+    "checkpoint.authentication",
     "checkpoint.signature",
     "checkpoint.contents.bcs",
     "transactions.transaction.bcs",

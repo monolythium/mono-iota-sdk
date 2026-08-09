@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 mod _field_impls {
@@ -125,6 +126,44 @@ mod _field_impls {
             BcsDataFieldPathBuilder::new_with_base(self.path)
         }
     }
+    impl CheckpointAuthentication {
+        pub const BCS_FIELD: &'static MessageField = &MessageField {
+            name: "bcs",
+            json_name: "bcs",
+            number: 1i32,
+            is_optional: true,
+            is_map: false,
+            message_fields: Some(BcsData::FIELDS),
+        };
+    }
+    impl MessageFields for CheckpointAuthentication {
+        const FIELDS: &'static [&'static MessageField] = &[Self::BCS_FIELD];
+    }
+    impl CheckpointAuthentication {
+        pub fn path_builder() -> CheckpointAuthenticationFieldPathBuilder {
+            CheckpointAuthenticationFieldPathBuilder::new()
+        }
+    }
+    pub struct CheckpointAuthenticationFieldPathBuilder {
+        path: Vec<&'static str>,
+    }
+    impl CheckpointAuthenticationFieldPathBuilder {
+        #[allow(clippy::new_without_default)]
+        pub fn new() -> Self {
+            Self { path: Default::default() }
+        }
+        #[doc(hidden)]
+        pub fn new_with_base(base: Vec<&'static str>) -> Self {
+            Self { path: base }
+        }
+        pub fn finish(self) -> String {
+            self.path.join(".")
+        }
+        pub fn bcs(mut self) -> BcsDataFieldPathBuilder {
+            self.path.push(CheckpointAuthentication::BCS_FIELD.name);
+            BcsDataFieldPathBuilder::new_with_base(self.path)
+        }
+    }
     impl Checkpoint {
         pub const SEQUENCE_NUMBER_FIELD: &'static MessageField = &MessageField {
             name: "sequence_number",
@@ -158,6 +197,14 @@ mod _field_impls {
             is_map: false,
             message_fields: Some(ValidatorAggregatedSignature::FIELDS),
         };
+        pub const AUTHENTICATION_FIELD: &'static MessageField = &MessageField {
+            name: "authentication",
+            json_name: "authentication",
+            number: 5i32,
+            is_optional: true,
+            is_map: false,
+            message_fields: Some(CheckpointAuthentication::FIELDS),
+        };
     }
     impl MessageFields for Checkpoint {
         const FIELDS: &'static [&'static MessageField] = &[
@@ -165,6 +212,7 @@ mod _field_impls {
             Self::SUMMARY_FIELD,
             Self::CONTENTS_FIELD,
             Self::SIGNATURE_FIELD,
+            Self::AUTHENTICATION_FIELD,
         ];
     }
     impl Checkpoint {
@@ -202,6 +250,10 @@ mod _field_impls {
         pub fn signature(mut self) -> ValidatorAggregatedSignatureFieldPathBuilder {
             self.path.push(Checkpoint::SIGNATURE_FIELD.name);
             ValidatorAggregatedSignatureFieldPathBuilder::new_with_base(self.path)
+        }
+        pub fn authentication(mut self) -> CheckpointAuthenticationFieldPathBuilder {
+            self.path.push(Checkpoint::AUTHENTICATION_FIELD.name);
+            CheckpointAuthenticationFieldPathBuilder::new_with_base(self.path)
         }
     }
 }

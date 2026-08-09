@@ -1,5 +1,6 @@
 ; Auto-generated BCS schema definitions
 ; Do not edit manually
+; Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 
 address = 32OCTET
 
@@ -7,6 +8,13 @@ argument = %d00           ; Gas
          / %d01 u16       ; Input
          / %d02 u16       ; Result
          / %d03 u16 u16   ; NestedResult
+
+authenticated-checkpoint-data = authenticated-checkpoint-summary   ; checkpoint-summary
+                                checkpoint-contents                ; checkpoint-contents
+                                (size *checkpoint-transaction)     ; transactions
+
+authenticated-checkpoint-summary = checkpoint-summary          ; checkpoint
+                                   checkpoint-authentication   ; authentication
 
 bls12381-public-key = %d96 96OCTET
 
@@ -72,6 +80,9 @@ changed-object = object-id      ; object-id
                  object-in      ; input-state
                  object-out     ; output-state
                  id-operation   ; id-operation
+
+checkpoint-authentication = %d00 validator-aggregated-signature         ; IotaValidatorAggregatedSignature
+                          / %d01 mono-checkpoint-authentication-bytes   ; MonoClusterAuthenticationV1
 
 checkpoint-commitment = %d00 digest   ; EcmhLiveObjectSet
 
@@ -267,6 +278,8 @@ merge-coins = argument           ; coin
               (size *argument)   ; coins-to-merge
 
 misbehavior-report-digest = digest
+
+mono-checkpoint-authentication-bytes = bytes
 
 move-authenticator-digest = digest
 

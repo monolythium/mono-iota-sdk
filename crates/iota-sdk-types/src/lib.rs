@@ -134,10 +134,12 @@ pub mod version;
 
 pub use address::{Address, AddressParseError};
 pub use checkpoint::{
+    AuthenticatedCheckpointData, AuthenticatedCheckpointSummary, CheckpointAuthentication,
     CheckpointCommitment, CheckpointContents, CheckpointContentsV1, CheckpointData,
     CheckpointSequenceNumber, CheckpointSummary, CheckpointTimestamp, CheckpointTransaction,
-    CheckpointTransactionInfo, EndOfEpochData, EpochId, ProtocolVersion, SignedCheckpointSummary,
-    StakeUnit,
+    CheckpointTransactionInfo, EndOfEpochData, EpochId, MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES,
+    MonoCheckpointAuthenticationBytes, MonoCheckpointAuthenticationBytesError, ProtocolVersion,
+    SignedCheckpointSummary, StakeUnit,
 };
 pub use crypto::{
     Bls12381PublicKey, Bls12381Signature, Ed25519PublicKey, Ed25519Signature, HashingIntentScope,

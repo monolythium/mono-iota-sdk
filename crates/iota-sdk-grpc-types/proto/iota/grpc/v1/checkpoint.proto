@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
@@ -50,6 +51,14 @@ message CheckpointContents {
   optional iota.grpc.v1.bcs.BcsData bcs = 2;
 }
 
+// Versioned authentication that certifies a checkpoint summary.
+message CheckpointAuthentication {
+  option (iota.grpc.message_accessors) = "with";
+
+  // This CheckpointAuthentication serialized as BCS.
+  optional iota.grpc.v1.bcs.BcsData bcs = 1;
+}
+
 message Checkpoint {
   option (iota.grpc.message_accessors) = "with";
 
@@ -65,4 +74,9 @@ message Checkpoint {
   // An aggregated quorum signature from the validator committee that
   // certified this checkpoint.
   optional iota.grpc.v1.signatures.ValidatorAggregatedSignature signature = 4;
+
+  // Versioned authentication that certified this checkpoint. Legacy IOTA
+  // responses may provide `signature` instead. If both fields are present,
+  // they must encode the same legacy authentication.
+  optional CheckpointAuthentication authentication = 5;
 }

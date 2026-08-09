@@ -201,9 +201,27 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal --component clippy
           rustup toolchain install nightly-2026-06-29 --profile minimal --component rustfmt
 
+      - name: Verify generated checkpoint artifacts
+        shell: bash
+        run: |
+          RUSTUP_TOOLCHAIN=1.97.1 make grpc
+          RUSTUP_TOOLCHAIN=1.97.1 make bcs-schema
+          cargo +1.97.1 test --locked -p iota-sdk-bcs-schema
+          git diff --exit-code -- \
+            crates/iota-sdk-grpc-types/src/proto/generated/ \
+            crates/iota-sdk-types/bcs-schema.abnf \
+            crates/iota-sdk-move-types/bcs-schema.abnf
+
       - name: Test and lint canonical types
         shell: bash
         run: |
           cargo +nightly-2026-06-29 fmt -p iota-sdk-types -p iota-sdk-crypto -- --check
           cargo +1.97.1 test --locked -p iota-sdk-types --all-features
           cargo +1.97.1 clippy --locked -p iota-sdk-types -p iota-sdk-crypto --all-targets --all-features -- -D warnings
+
+      - name: Test and lint checkpoint transport
+        shell: bash
+        run: |
+          cargo +1.97.1 test --locked -p iota-sdk-grpc-types -p iota-sdk-grpc-client --all-features
+          cargo +1.97.1 clippy --locked -p iota-sdk-grpc-types --all-targets --all-features -- -D warnings
+          cargo +1.97.1 clippy --locked -p iota-sdk-grpc-client --all-targets --all-features --no-deps -- -D warnings

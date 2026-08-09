@@ -1,4 +1,5 @@
 // Copyright (c) 2026 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Grammar-driven fuzzing: generates byte sequences that conform to
@@ -410,6 +411,10 @@ impl TestHarness {
             "checkpoint-transaction",
             Self::generate_checkpoint_transaction,
         );
+        overrides.insert(
+            "mono-checkpoint-authentication-bytes",
+            Self::gen_mono_checkpoint_authentication_bytes,
+        );
         overrides.insert("move-struct", Self::gen_move_struct);
 
         Self {
@@ -506,6 +511,17 @@ impl TestHarness {
         let mut buf = vec![0u8; 64 + 32];
         self.rng.fill_bytes(&mut buf);
         out.extend(buf);
+        out
+    }
+
+    /// Generate non-empty, bounded opaque Monolythium checkpoint
+    /// authentication in BCS wire form.
+    fn gen_mono_checkpoint_authentication_bytes(&mut self) -> Vec<u8> {
+        let len = 1 + (self.rng.next_u32() as usize) % 16;
+        let mut out = encode_uleb128(len as u64);
+        let mut content = vec![0u8; len];
+        self.rng.fill_bytes(&mut content);
+        out.extend(content);
         out
     }
 
@@ -735,12 +751,15 @@ fn grammar_driven_fuzzing() {
 
     test.check_rule::<Address>("address");
     test.check_rule::<Argument>("argument");
+    test.check_rule::<AuthenticatedCheckpointData>("authenticated-checkpoint-data");
+    test.check_rule::<AuthenticatedCheckpointSummary>("authenticated-checkpoint-summary");
     test.check_rule::<Bls12381PublicKey>("bls12381-public-key");
     test.check_rule::<Bls12381Signature>("bls12381-signature");
     test.check_rule::<CancelledTransaction>("cancelled-transaction");
     test.check_rule::<ChangeEpoch>("change-epoch");
     test.check_rule::<ChangedObject>("changed-object");
     test.check_rule::<CheckpointCommitment>("checkpoint-commitment");
+    test.check_rule::<CheckpointAuthentication>("checkpoint-authentication");
     test.check_rule::<CheckpointContents>("checkpoint-contents");
     test.check_rule::<CheckpointData>("checkpoint-data");
     test.check_rule::<CheckpointSummary>("checkpoint-summary");
@@ -769,6 +788,7 @@ fn grammar_driven_fuzzing() {
     test.check_rule::<MergeCoins>("merge-coins");
     test.check_rule::<MoveCall>("move-call");
     test.check_rule::<MoveLocation>("move-location");
+    test.check_rule::<MonoCheckpointAuthenticationBytes>("mono-checkpoint-authentication-bytes");
     test.check_rule::<Object>("object");
     test.check_rule::<ObjectId>("object-id");
     test.check_rule::<ObjectIn>("object-in");

@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{
@@ -13,6 +14,126 @@ pub type CheckpointTimestamp = u64;
 pub type EpochId = u64;
 pub type StakeUnit = u64;
 pub type ProtocolVersion = u64;
+
+/// Maximum encoded size of an opaque Monolythium checkpoint certificate.
+pub const MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES: usize = 2 * 1024 * 1024;
+
+/// Error constructing opaque Monolythium checkpoint-authentication bytes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum MonoCheckpointAuthenticationBytesError {
+    /// A checkpoint certificate must contain at least one byte.
+    #[error("Monolythium checkpoint authentication must not be empty")]
+    Empty,
+    /// The checkpoint certificate exceeds the SDK transport limit.
+    #[error(
+        "Monolythium checkpoint authentication is too large: maximum {maximum} bytes, got {actual}"
+    )]
+    TooLarge { maximum: usize, actual: usize },
+}
+
+/// Opaque, size-bounded authentication for a Monolythium checkpoint.
+///
+/// The SDK intentionally does not interpret these bytes. Consensus-aware code
+/// is responsible for decoding and verifying the certificate.
+///
+/// # BCS
+///
+/// The BCS serialized form is a non-empty `bytes` value no larger than
+/// [`MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES`].
+#[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(
+    feature = "bcs-schema",
+    derive(iota_bcs_schema::BcsSchema),
+    bcs_schema(definition = "bytes")
+)]
+pub struct MonoCheckpointAuthenticationBytes(
+    #[cfg_attr(
+        feature = "proptest",
+        any(proptest::collection::size_range(1..=2048).lift())
+    )]
+    Vec<u8>,
+);
+
+impl MonoCheckpointAuthenticationBytes {
+    /// Constructs bounded opaque checkpoint-authentication bytes.
+    pub fn new(bytes: Vec<u8>) -> Result<Self, MonoCheckpointAuthenticationBytesError> {
+        match bytes.len() {
+            0 => Err(MonoCheckpointAuthenticationBytesError::Empty),
+            actual if actual > MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES => {
+                Err(MonoCheckpointAuthenticationBytesError::TooLarge {
+                    maximum: MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES,
+                    actual,
+                })
+            }
+            _ => Ok(Self(bytes)),
+        }
+    }
+
+    /// Returns the opaque checkpoint-authentication bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Consumes the value and returns its opaque bytes.
+    #[must_use]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    /// Returns the encoded checkpoint-authentication length.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns whether the checkpoint-authentication value is empty.
+    ///
+    /// Valid instances are never empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl core::fmt::Debug for MonoCheckpointAuthenticationBytes {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("MonoCheckpointAuthenticationBytes")
+            .field("length", &self.len())
+            .finish()
+    }
+}
+
+impl AsRef<[u8]> for MonoCheckpointAuthenticationBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
+}
+
+impl TryFrom<Vec<u8>> for MonoCheckpointAuthenticationBytes {
+    type Error = MonoCheckpointAuthenticationBytesError;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::new(bytes)
+    }
+}
+
+impl TryFrom<&[u8]> for MonoCheckpointAuthenticationBytes {
+    type Error = MonoCheckpointAuthenticationBytesError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::new(bytes.to_vec())
+    }
+}
+
+impl From<MonoCheckpointAuthenticationBytes> for Vec<u8> {
+    fn from(authentication: MonoCheckpointAuthenticationBytes) -> Self {
+        authentication.into_bytes()
+    }
+}
 
 /// A commitment made by a checkpoint.
 ///
@@ -278,6 +399,123 @@ pub struct SignedCheckpointSummary {
     pub signature: ValidatorAggregatedSignature,
 }
 
+/// Authentication attached to a checkpoint summary.
+///
+/// # BCS
+///
+/// ```text
+/// checkpoint-authentication = %d00 validator-aggregated-signature       ; IotaValidatorAggregatedSignature
+///                           / %d01 mono-checkpoint-authentication-bytes ; MonoClusterAuthenticationV1
+/// ```
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
+#[non_exhaustive]
+pub enum CheckpointAuthentication {
+    /// The validator-committee authentication used by upstream IOTA.
+    IotaValidatorAggregatedSignature(ValidatorAggregatedSignature),
+    /// A version-one Monolythium cluster certificate, kept opaque by the SDK.
+    MonoClusterAuthenticationV1(MonoCheckpointAuthenticationBytes),
+}
+
+impl CheckpointAuthentication {
+    /// Returns the upstream IOTA aggregated signature, when present.
+    #[must_use]
+    pub fn as_iota_validator_aggregated_signature(&self) -> Option<&ValidatorAggregatedSignature> {
+        match self {
+            Self::IotaValidatorAggregatedSignature(signature) => Some(signature),
+            Self::MonoClusterAuthenticationV1(_) => None,
+        }
+    }
+
+    /// Returns the opaque Monolythium certificate bytes, when present.
+    #[must_use]
+    pub fn as_mono_cluster_authentication_v1(&self) -> Option<&MonoCheckpointAuthenticationBytes> {
+        match self {
+            Self::IotaValidatorAggregatedSignature(_) => None,
+            Self::MonoClusterAuthenticationV1(authentication) => Some(authentication),
+        }
+    }
+
+    /// Consumes the authentication and returns the upstream IOTA signature,
+    /// when present.
+    pub fn into_iota_validator_aggregated_signature(
+        self,
+    ) -> Result<ValidatorAggregatedSignature, Self> {
+        match self {
+            Self::IotaValidatorAggregatedSignature(signature) => Ok(signature),
+            authentication @ Self::MonoClusterAuthenticationV1(_) => Err(authentication),
+        }
+    }
+
+    /// Consumes the authentication and returns the opaque Monolythium
+    /// certificate, when present.
+    pub fn into_mono_cluster_authentication_v1(
+        self,
+    ) -> Result<MonoCheckpointAuthenticationBytes, Self> {
+        match self {
+            authentication @ Self::IotaValidatorAggregatedSignature(_) => Err(authentication),
+            Self::MonoClusterAuthenticationV1(authentication) => Ok(authentication),
+        }
+    }
+}
+
+impl From<ValidatorAggregatedSignature> for CheckpointAuthentication {
+    fn from(signature: ValidatorAggregatedSignature) -> Self {
+        Self::IotaValidatorAggregatedSignature(signature)
+    }
+}
+
+impl From<MonoCheckpointAuthenticationBytes> for CheckpointAuthentication {
+    fn from(authentication: MonoCheckpointAuthenticationBytes) -> Self {
+        Self::MonoClusterAuthenticationV1(authentication)
+    }
+}
+
+/// A checkpoint summary paired with either upstream IOTA or Monolythium
+/// authentication.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
+pub struct AuthenticatedCheckpointSummary {
+    pub checkpoint: CheckpointSummary,
+    pub authentication: CheckpointAuthentication,
+}
+
+impl From<SignedCheckpointSummary> for AuthenticatedCheckpointSummary {
+    fn from(summary: SignedCheckpointSummary) -> Self {
+        Self {
+            checkpoint: summary.checkpoint,
+            authentication: summary.signature.into(),
+        }
+    }
+}
+
+impl TryFrom<AuthenticatedCheckpointSummary> for SignedCheckpointSummary {
+    type Error = AuthenticatedCheckpointSummary;
+
+    fn try_from(summary: AuthenticatedCheckpointSummary) -> Result<Self, Self::Error> {
+        let AuthenticatedCheckpointSummary {
+            checkpoint,
+            authentication,
+        } = summary;
+
+        match authentication {
+            CheckpointAuthentication::IotaValidatorAggregatedSignature(signature) => Ok(Self {
+                checkpoint,
+                signature,
+            }),
+            authentication @ CheckpointAuthentication::MonoClusterAuthenticationV1(_) => {
+                Err(AuthenticatedCheckpointSummary {
+                    checkpoint,
+                    authentication,
+                })
+            }
+        }
+    }
+}
+
 /// The committed to contents of a checkpoint.
 ///
 /// `CheckpointContents` contains a list of digests of Transactions, their
@@ -410,6 +648,57 @@ pub struct CheckpointData {
     pub transactions: Vec<CheckpointTransaction>,
 }
 
+/// Full checkpoint data carrying either upstream IOTA or Monolythium
+/// authentication.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
+pub struct AuthenticatedCheckpointData {
+    pub checkpoint_summary: AuthenticatedCheckpointSummary,
+    pub checkpoint_contents: CheckpointContents,
+    #[cfg_attr(
+        feature = "proptest",
+        any(proptest::collection::size_range(0..=1).lift())
+    )]
+    pub transactions: Vec<CheckpointTransaction>,
+}
+
+impl From<CheckpointData> for AuthenticatedCheckpointData {
+    fn from(data: CheckpointData) -> Self {
+        Self {
+            checkpoint_summary: data.checkpoint_summary.into(),
+            checkpoint_contents: data.checkpoint_contents,
+            transactions: data.transactions,
+        }
+    }
+}
+
+impl TryFrom<AuthenticatedCheckpointData> for CheckpointData {
+    type Error = AuthenticatedCheckpointData;
+
+    fn try_from(data: AuthenticatedCheckpointData) -> Result<Self, Self::Error> {
+        let AuthenticatedCheckpointData {
+            checkpoint_summary,
+            checkpoint_contents,
+            transactions,
+        } = data;
+
+        match SignedCheckpointSummary::try_from(checkpoint_summary) {
+            Ok(checkpoint_summary) => Ok(Self {
+                checkpoint_summary,
+                checkpoint_contents,
+                transactions,
+            }),
+            Err(checkpoint_summary) => Err(AuthenticatedCheckpointData {
+                checkpoint_summary,
+                checkpoint_contents,
+                transactions,
+            }),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
@@ -441,9 +730,137 @@ pub struct CheckpointTransaction {
 #[cfg(feature = "serde")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "serde")))]
 mod serialization {
+    use std::borrow::Cow;
+
+    use base64ct::{Base64, Encoding};
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     use super::*;
+
+    impl Serialize for MonoCheckpointAuthenticationBytes {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            if serializer.is_human_readable() {
+                Base64::encode_string(self.as_bytes()).serialize(serializer)
+            } else {
+                serializer.serialize_bytes(self.as_bytes())
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for MonoCheckpointAuthenticationBytes {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let bytes = if deserializer.is_human_readable() {
+                let encoded: Cow<'de, str> = Deserialize::deserialize(deserializer)?;
+                Base64::decode_vec(&encoded).map_err(serde::de::Error::custom)?
+            } else {
+                Cow::<'de, [u8]>::deserialize(deserializer)?.into_owned()
+            };
+
+            Self::new(bytes).map_err(serde::de::Error::custom)
+        }
+    }
+
+    impl Serialize for CheckpointAuthentication {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            if serializer.is_human_readable() {
+                #[derive(serde::Serialize)]
+                #[serde(tag = "scheme")]
+                enum HumanReadable<'a> {
+                    #[serde(rename = "iotaValidatorAggregatedSignature")]
+                    IotaValidatorAggregatedSignature {
+                        #[serde(flatten)]
+                        signature: &'a ValidatorAggregatedSignature,
+                    },
+                    #[serde(rename = "monoClusterAuthenticationV1")]
+                    MonoClusterAuthenticationV1 {
+                        certificate: &'a MonoCheckpointAuthenticationBytes,
+                    },
+                }
+
+                match self {
+                    Self::IotaValidatorAggregatedSignature(signature) => {
+                        HumanReadable::IotaValidatorAggregatedSignature { signature }
+                            .serialize(serializer)
+                    }
+                    Self::MonoClusterAuthenticationV1(certificate) => {
+                        HumanReadable::MonoClusterAuthenticationV1 { certificate }
+                            .serialize(serializer)
+                    }
+                }
+            } else {
+                #[derive(serde::Serialize)]
+                enum Binary<'a> {
+                    IotaValidatorAggregatedSignature(&'a ValidatorAggregatedSignature),
+                    MonoClusterAuthenticationV1(&'a MonoCheckpointAuthenticationBytes),
+                }
+
+                match self {
+                    Self::IotaValidatorAggregatedSignature(signature) => {
+                        Binary::IotaValidatorAggregatedSignature(signature).serialize(serializer)
+                    }
+                    Self::MonoClusterAuthenticationV1(certificate) => {
+                        Binary::MonoClusterAuthenticationV1(certificate).serialize(serializer)
+                    }
+                }
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for CheckpointAuthentication {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            if deserializer.is_human_readable() {
+                #[derive(serde::Deserialize)]
+                #[serde(tag = "scheme")]
+                enum HumanReadable {
+                    #[serde(rename = "iotaValidatorAggregatedSignature")]
+                    IotaValidatorAggregatedSignature {
+                        #[serde(flatten)]
+                        signature: ValidatorAggregatedSignature,
+                    },
+                    #[serde(rename = "monoClusterAuthenticationV1")]
+                    MonoClusterAuthenticationV1 {
+                        certificate: MonoCheckpointAuthenticationBytes,
+                    },
+                }
+
+                match HumanReadable::deserialize(deserializer)? {
+                    HumanReadable::IotaValidatorAggregatedSignature { signature } => {
+                        Ok(Self::IotaValidatorAggregatedSignature(signature))
+                    }
+                    HumanReadable::MonoClusterAuthenticationV1 { certificate } => {
+                        Ok(Self::MonoClusterAuthenticationV1(certificate))
+                    }
+                }
+            } else {
+                #[derive(serde::Deserialize)]
+                enum Binary {
+                    IotaValidatorAggregatedSignature(ValidatorAggregatedSignature),
+                    MonoClusterAuthenticationV1(MonoCheckpointAuthenticationBytes),
+                }
+
+                match Binary::deserialize(deserializer)? {
+                    Binary::IotaValidatorAggregatedSignature(signature) => {
+                        Ok(Self::IotaValidatorAggregatedSignature(signature))
+                    }
+                    Binary::MonoClusterAuthenticationV1(certificate) => {
+                        Ok(Self::MonoClusterAuthenticationV1(certificate))
+                    }
+                }
+            }
+        }
+    }
 
     impl Serialize for CheckpointContentsV1 {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -565,11 +982,146 @@ mod serialization {
 
     #[cfg(test)]
     mod tests {
-        use base64ct::{Base64, Encoding};
         #[cfg(target_arch = "wasm32")]
         use wasm_bindgen_test::wasm_bindgen_test as test;
 
         use super::*;
+
+        const LEGACY_AUTHENTICATION_FIXTURE: &str = "AAoAAAAAAAAAmawXF4qmtLbc7X8KwcSs0EcyEZ2YW5rEFe7ajV8ImUK0QvnVQ23bmtRLcvbstqQlEjowAAABAAAAAAAAABAAAAAAAA==";
+
+        #[test]
+        fn checkpoint_authentication_bcs_fixtures() {
+            let legacy_bytes = Base64::decode_vec(LEGACY_AUTHENTICATION_FIXTURE).unwrap();
+            let legacy: CheckpointAuthentication = bcs::from_bytes(&legacy_bytes).unwrap();
+            assert!(legacy.as_iota_validator_aggregated_signature().is_some());
+            assert_eq!(bcs::to_bytes(&legacy).unwrap(), legacy_bytes);
+
+            let mono_bytes = [0x01, 0x03, 0x01, 0x02, 0x03];
+            let mono: CheckpointAuthentication = bcs::from_bytes(&mono_bytes).unwrap();
+            assert_eq!(
+                mono.as_mono_cluster_authentication_v1().unwrap().as_bytes(),
+                [1, 2, 3]
+            );
+            assert_eq!(bcs::to_bytes(&mono).unwrap(), mono_bytes);
+            assert_eq!(Base64::encode_string(&mono_bytes), "AQMBAgM=");
+        }
+
+        #[test]
+        fn checkpoint_authentication_json_fixtures() {
+            let legacy_bytes = Base64::decode_vec(LEGACY_AUTHENTICATION_FIXTURE).unwrap();
+            let legacy: CheckpointAuthentication = bcs::from_bytes(&legacy_bytes).unwrap();
+            assert_eq!(
+                serde_json::to_value(&legacy).unwrap(),
+                serde_json::json!({
+                    "scheme": "iotaValidatorAggregatedSignature",
+                    "epoch": "10",
+                    "signature": "mawXF4qmtLbc7X8KwcSs0EcyEZ2YW5rEFe7ajV8ImUK0QvnVQ23bmtRLcvbstqQl",
+                    "bitmap": "OjAAAAEAAAAAAAAAEAAAAAAA",
+                })
+            );
+            assert_eq!(
+                serde_json::from_value::<CheckpointAuthentication>(
+                    serde_json::to_value(&legacy).unwrap()
+                )
+                .unwrap(),
+                legacy
+            );
+
+            let mono = CheckpointAuthentication::MonoClusterAuthenticationV1(
+                MonoCheckpointAuthenticationBytes::new(vec![1, 2, 3]).unwrap(),
+            );
+            assert_eq!(
+                serde_json::to_value(&mono).unwrap(),
+                serde_json::json!({
+                    "scheme": "monoClusterAuthenticationV1",
+                    "certificate": "AQID",
+                })
+            );
+            assert_eq!(
+                serde_json::from_value::<CheckpointAuthentication>(
+                    serde_json::to_value(&mono).unwrap()
+                )
+                .unwrap(),
+                mono
+            );
+        }
+
+        #[test]
+        fn checkpoint_authentication_conversions_are_lossless() {
+            let legacy_bytes = Base64::decode_vec(LEGACY_AUTHENTICATION_FIXTURE).unwrap();
+            let legacy: CheckpointAuthentication = bcs::from_bytes(&legacy_bytes).unwrap();
+            let signature = legacy
+                .clone()
+                .into_iota_validator_aggregated_signature()
+                .unwrap();
+            assert_eq!(CheckpointAuthentication::from(signature), legacy);
+
+            let certificate = MonoCheckpointAuthenticationBytes::new(vec![1, 2, 3]).unwrap();
+            let mono = CheckpointAuthentication::from(certificate.clone());
+            assert_eq!(
+                mono.clone().into_mono_cluster_authentication_v1(),
+                Ok(certificate)
+            );
+            assert_eq!(
+                mono.clone().into_iota_validator_aggregated_signature(),
+                Err(mono)
+            );
+        }
+
+        #[test]
+        fn mono_checkpoint_authentication_boundaries() {
+            assert_eq!(
+                MonoCheckpointAuthenticationBytes::new(Vec::new()).unwrap_err(),
+                MonoCheckpointAuthenticationBytesError::Empty
+            );
+
+            let maximum = vec![0xa5; MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES];
+            let authentication = MonoCheckpointAuthenticationBytes::new(maximum.clone()).unwrap();
+            assert_eq!(
+                authentication.len(),
+                MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES
+            );
+            assert!(!authentication.is_empty());
+            assert_eq!(authentication.as_bytes(), maximum);
+            let maximum_bcs = bcs::to_bytes(&authentication).unwrap();
+            assert_eq!(
+                bcs::from_bytes::<MonoCheckpointAuthenticationBytes>(&maximum_bcs).unwrap(),
+                authentication
+            );
+
+            let actual = MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES + 1;
+            assert_eq!(
+                MonoCheckpointAuthenticationBytes::new(vec![0; actual]).unwrap_err(),
+                MonoCheckpointAuthenticationBytesError::TooLarge {
+                    maximum: MAX_MONO_CHECKPOINT_AUTHENTICATION_BYTES,
+                    actual,
+                }
+            );
+
+            let empty_bcs = bcs::to_bytes(&Vec::<u8>::new()).unwrap();
+            assert!(bcs::from_bytes::<MonoCheckpointAuthenticationBytes>(&empty_bcs).is_err());
+            let oversized_bcs = bcs::to_bytes(&vec![0; actual]).unwrap();
+            assert!(bcs::from_bytes::<MonoCheckpointAuthenticationBytes>(&oversized_bcs).is_err());
+            assert!(serde_json::from_str::<MonoCheckpointAuthenticationBytes>(r#"""#).is_err());
+        }
+
+        #[test]
+        fn mono_checkpoint_authentication_debug_is_opaque() {
+            let authentication =
+                MonoCheckpointAuthenticationBytes::new(vec![0xde, 0xad, 0xbe, 0xef]).unwrap();
+            let debug = format!("{authentication:?}");
+            assert_eq!(debug, "MonoCheckpointAuthenticationBytes { length: 4 }");
+            assert!(!debug.contains("deadbeef"));
+        }
+
+        #[test]
+        fn checkpoint_authentication_rejects_invalid_bcs() {
+            assert!(bcs::from_bytes::<CheckpointAuthentication>(&[0x02]).is_err());
+            assert!(
+                bcs::from_bytes::<CheckpointAuthentication>(&[0x01, 0x03, 0x01, 0x02]).is_err()
+            );
+            assert!(bcs::from_bytes::<CheckpointAuthentication>(&[0x01, 0x00]).is_err());
+        }
 
         #[test]
         fn signed_checkpoint_fixture() {

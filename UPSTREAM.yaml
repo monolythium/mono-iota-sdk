@@ -40,6 +40,7 @@ overlay_policy:
         - crates/iota-sdk-types/src/hash.rs
         - crates/iota-sdk-types/src/lib.rs
         - crates/iota-sdk-types/tests/**
+        - crates/iota-sdk-crypto/src/multisig.rs
 
 validation:
   workflow: .github/workflows/mono-ci.yml

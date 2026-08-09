@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(feature = "serde")]
@@ -507,7 +508,9 @@ impl TryFrom<UserSignature> for MultisigMemberSignature {
             UserSignature::Simple(simple) => Ok(simple.into()),
             UserSignature::Multisig(_) => Err(MultisigError::UnallowedSignatureType),
             UserSignature::PasskeyAuthenticator(auth) => Ok(Self::Passkey(auth)),
-            UserSignature::MoveAuthenticator(_) => Err(MultisigError::UnallowedSignatureType),
+            UserSignature::MoveAuthenticator(_) | UserSignature::MlDsa65Authenticator(_) => {
+                Err(MultisigError::UnallowedSignatureType)
+            }
         }
     }
 }

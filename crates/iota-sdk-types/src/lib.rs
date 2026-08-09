@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Core type definitions for the IOTA blockchain.
@@ -141,11 +142,15 @@ pub use checkpoint::{
 pub use crypto::{
     Bls12381PublicKey, Bls12381Signature, Ed25519PublicKey, Ed25519Signature, HashingIntentScope,
     INTENT_PREFIX_LENGTH, Intent, IntentAppId, IntentError, IntentMessage, IntentScope,
-    IntentVersion, InvalidSignatureScheme, MoveAuthenticator, MoveAuthenticatorV1,
-    MultisigAggregatedSignature, MultisigCommittee, MultisigMember, MultisigMemberSignature,
-    PasskeyAuthenticator, PasskeyPublicKey, PersonalMessage, PublicKey, PublicKeyExt,
-    RandomnessRound, Secp256k1PublicKey, Secp256k1Signature, Secp256r1PublicKey,
-    Secp256r1Signature, SignatureScheme, SimpleSignature, UserSignature,
+    IntentVersion, InvalidSignatureScheme, ML_DSA_65_AUTHENTICATOR_V1_BCS_LEN,
+    ML_DSA_65_AUTHENTICATOR_V1_LEN, ML_DSA_65_INTENT_V1_DOMAIN, ML_DSA_65_INTENT_V1_LEN,
+    ML_DSA_65_PUBLIC_KEY_LEN, ML_DSA_65_SIGNATURE_LEN, MlDsa65AuthenticatorError,
+    MlDsa65AuthenticatorV1, MlDsa65PublicKey, MlDsa65Signature, MlDsa65SigningIntentV1,
+    MoveAuthenticator, MoveAuthenticatorV1, MultisigAggregatedSignature, MultisigCommittee,
+    MultisigMember, MultisigMemberSignature, PasskeyAuthenticator, PasskeyPublicKey,
+    PersonalMessage, PublicKey, PublicKeyExt, RandomnessRound, Secp256k1PublicKey,
+    Secp256k1Signature, Secp256r1PublicKey, Secp256r1Signature, SignatureScheme, SimpleSignature,
+    UserSignature,
 };
 pub use digest::{
     CertificateDigest, CheckpointContentsDigest, CheckpointDigest, ConsensusCommitDigest, Digest,

@@ -11,6 +11,9 @@ The reviewed upstream source and overlay paths are recorded in
 source for upstream improvements; Monolythium release branches adopt those
 changes through reviewed merges.
 
+This project is independently maintained and is not affiliated with or
+endorsed by the IOTA Foundation.
+
 ## Crates
 
 The workspace includes the IOTA SDK type, cryptography, transaction-builder,

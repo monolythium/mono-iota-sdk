@@ -1,10 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 mod bls12381;
 mod ed25519;
 mod intent;
+mod ml_dsa;
 mod move_authenticator;
 mod multisig;
 mod passkey;
@@ -19,6 +21,12 @@ pub use ed25519::{Ed25519PublicKey, Ed25519Signature};
 pub use intent::{
     HashingIntentScope, INTENT_PREFIX_LENGTH, Intent, IntentAppId, IntentError, IntentMessage,
     IntentScope, IntentVersion, PersonalMessage,
+};
+pub use ml_dsa::{
+    ML_DSA_65_AUTHENTICATOR_V1_BCS_LEN, ML_DSA_65_AUTHENTICATOR_V1_LEN, ML_DSA_65_INTENT_V1_DOMAIN,
+    ML_DSA_65_INTENT_V1_LEN, ML_DSA_65_PUBLIC_KEY_LEN, ML_DSA_65_SIGNATURE_LEN,
+    MlDsa65AuthenticatorError, MlDsa65AuthenticatorV1, MlDsa65PublicKey, MlDsa65Signature,
+    MlDsa65SigningIntentV1,
 };
 pub use move_authenticator::{MoveAuthenticator, MoveAuthenticatorV1};
 pub use multisig::{

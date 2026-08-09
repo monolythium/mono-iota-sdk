@@ -1,10 +1,12 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{
-    Ed25519PublicKey, Ed25519Signature, MultisigAggregatedSignature, PasskeyAuthenticator,
-    PublicKey, Secp256k1PublicKey, Secp256k1Signature, Secp256r1PublicKey, Secp256r1Signature,
+    Ed25519PublicKey, Ed25519Signature, MlDsa65AuthenticatorV1, MultisigAggregatedSignature,
+    PasskeyAuthenticator, PublicKey, Secp256k1PublicKey, Secp256k1Signature, Secp256r1PublicKey,
+    Secp256r1Signature,
 };
 use crate::crypto::move_authenticator::MoveAuthenticator;
 
@@ -242,7 +244,7 @@ impl SimpleSignature {
 /// ```text
 /// signature-scheme = ed25519-flag / secp256k1-flag / secp256r1-flag /
 ///                    multisig-flag / bls-flag / passkey-auth-flag /
-///                    move-auth-flag
+///                    move-auth-flag / ml-dsa-65-auth-flag
 /// ed25519-flag                    = %d00
 /// secp256k1-flag                  = %d01
 /// secp256r1-flag                  = %d02
@@ -250,6 +252,7 @@ impl SimpleSignature {
 /// bls-flag                        = %d04
 /// passkey-auth-flag               = %d06
 /// move-auth-flag                  = %d07
+/// ml-dsa-65-auth-flag             = %d08
 /// ```
 ///
 /// Flag `%d05` is reserved: it was formerly used for the now-removed zklogin
@@ -268,6 +271,7 @@ pub enum SignatureScheme {
     Bls12381 = 0x04, // This is currently not supported for user addresses
     PasskeyAuthenticator = 0x06,
     MoveAuthenticator = 0x07,
+    MlDsa65 = 0x08,
 }
 
 impl SignatureScheme {
@@ -279,6 +283,7 @@ impl SignatureScheme {
         Bls12381,
         PasskeyAuthenticator,
         MoveAuthenticator,
+        MlDsa65,
     );
 
     /// Try constructing from a byte flag
@@ -291,6 +296,7 @@ impl SignatureScheme {
             0x04 => Ok(Self::Bls12381),
             0x06 => Ok(Self::PasskeyAuthenticator),
             0x07 => Ok(Self::MoveAuthenticator),
+            0x08 => Ok(Self::MlDsa65),
             invalid => Err(InvalidSignatureScheme(invalid)),
         }
     }
@@ -328,7 +334,8 @@ impl std::fmt::Display for InvalidSignatureScheme {
 ///
 /// ```text
 /// user-signature-bcs = bytes ; where the contents of the bytes are defined by <user-signature>
-/// user-signature = simple-signature / multisig / multisig-legacy / passkey / move-authenticator
+/// user-signature = simple-signature / multisig / multisig-legacy / passkey /
+///                  move-authenticator / ml-dsa-65-authenticator
 /// ```
 ///
 /// Note: Due to historical reasons, signatures are serialized slightly
@@ -349,6 +356,7 @@ pub enum UserSignature {
     Multisig(MultisigAggregatedSignature),
     PasskeyAuthenticator(PasskeyAuthenticator),
     MoveAuthenticator(MoveAuthenticator),
+    MlDsa65Authenticator(MlDsa65AuthenticatorV1),
 }
 
 impl UserSignature {
@@ -356,7 +364,8 @@ impl UserSignature {
         Simple(SimpleSignature),
         Multisig(MultisigAggregatedSignature),
         PasskeyAuthenticator(PasskeyAuthenticator),
-        MoveAuthenticator(MoveAuthenticator)
+        MoveAuthenticator(MoveAuthenticator),
+        MlDsa65Authenticator(MlDsa65AuthenticatorV1)
     );
 
     /// Return the flag for this signature scheme
@@ -366,6 +375,7 @@ impl UserSignature {
             UserSignature::Multisig(_) => SignatureScheme::Multisig,
             UserSignature::PasskeyAuthenticator(_) => SignatureScheme::PasskeyAuthenticator,
             UserSignature::MoveAuthenticator(_) => SignatureScheme::MoveAuthenticator,
+            UserSignature::MlDsa65Authenticator(_) => SignatureScheme::MlDsa65,
         }
     }
 
@@ -390,6 +400,9 @@ impl UserSignature {
             UserSignature::MoveAuthenticator(_) => Err(InvalidSignatureScheme(
                 SignatureScheme::MoveAuthenticator.to_u8(),
             )),
+            UserSignature::MlDsa65Authenticator(_) => {
+                Err(InvalidSignatureScheme(SignatureScheme::MlDsa65.to_u8()))
+            }
         }
     }
 }
@@ -502,7 +515,8 @@ mod serialization {
                 SignatureScheme::Multisig
                 | SignatureScheme::Bls12381
                 | SignatureScheme::PasskeyAuthenticator
-                | SignatureScheme::MoveAuthenticator => {
+                | SignatureScheme::MoveAuthenticator
+                | SignatureScheme::MlDsa65 => {
                     Err(SignatureFromBytesError::new("invalid signature scheme"))
                 }
             }
@@ -686,6 +700,7 @@ mod serialization {
                 UserSignature::Multisig(m) => m.to_bytes(),
                 UserSignature::PasskeyAuthenticator(p) => p.to_bytes(),
                 UserSignature::MoveAuthenticator(m) => m.to_bytes(),
+                UserSignature::MlDsa65Authenticator(m) => m.to_bytes(),
             }
         }
 
@@ -725,6 +740,11 @@ mod serialization {
                     let move_auth = MoveAuthenticator::from_bytes(bytes)?;
                     Ok(Self::MoveAuthenticator(move_auth))
                 }
+                SignatureScheme::MlDsa65 => {
+                    let authenticator = MlDsa65AuthenticatorV1::from_bytes(bytes)
+                        .map_err(SignatureFromBytesError::new)?;
+                    Ok(Self::MlDsa65Authenticator(authenticator))
+                }
             }
         }
 
@@ -756,6 +776,7 @@ mod serialization {
         Multisig(&'a MultisigAggregatedSignature),
         Passkey(&'a PasskeyAuthenticator),
         Move(&'a MoveAuthenticator),
+        MlDsa65(&'a MlDsa65AuthenticatorV1),
     }
 
     #[derive(serde::Deserialize)]
@@ -777,6 +798,7 @@ mod serialization {
         Multisig(MultisigAggregatedSignature),
         Passkey(PasskeyAuthenticator),
         Move(MoveAuthenticator),
+        MlDsa65(MlDsa65AuthenticatorV1),
     }
 
     impl serde::Serialize for UserSignature {
@@ -816,6 +838,9 @@ mod serialization {
                     UserSignature::MoveAuthenticator(move_auth) => {
                         ReadableUserSignatureRef::Move(move_auth)
                     }
+                    UserSignature::MlDsa65Authenticator(authenticator) => {
+                        ReadableUserSignatureRef::MlDsa65(authenticator)
+                    }
                 };
                 readable.serialize(serializer)
             } else {
@@ -828,6 +853,9 @@ mod serialization {
                     // other signature scheme uses (and that `from_bytes`/deserialize expect).
                     UserSignature::MoveAuthenticator(move_auth) => {
                         serializer.serialize_bytes(&move_auth.to_bytes())
+                    }
+                    UserSignature::MlDsa65Authenticator(authenticator) => {
+                        serializer.serialize_bytes(&authenticator.to_bytes())
                     }
                 }
             }
@@ -866,6 +894,9 @@ mod serialization {
                     ReadableUserSignature::Multisig(multisig) => Self::Multisig(multisig),
                     ReadableUserSignature::Passkey(passkey) => Self::PasskeyAuthenticator(passkey),
                     ReadableUserSignature::Move(move_auth) => Self::MoveAuthenticator(move_auth),
+                    ReadableUserSignature::MlDsa65(authenticator) => {
+                        Self::MlDsa65Authenticator(authenticator)
+                    }
                 })
             } else {
                 use serde_with::DeserializeAs;
@@ -916,6 +947,7 @@ mod serialization {
             assert_eq!(SignatureScheme::Bls12381.to_u8(), 0x04);
             assert_eq!(SignatureScheme::PasskeyAuthenticator.to_u8(), 0x06);
             assert_eq!(SignatureScheme::MoveAuthenticator.to_u8(), 0x07);
+            assert_eq!(SignatureScheme::MlDsa65.to_u8(), 0x08);
 
             assert_eq!(
                 SignatureScheme::from_byte(0x00),
@@ -945,6 +977,10 @@ mod serialization {
                 SignatureScheme::from_byte(0x07),
                 Ok(SignatureScheme::MoveAuthenticator)
             );
+            assert_eq!(
+                SignatureScheme::from_byte(0x08),
+                Ok(SignatureScheme::MlDsa65)
+            );
 
             assert!(
                 SignatureScheme::from_byte(0x05).is_err(),
@@ -957,6 +993,40 @@ mod serialization {
         #[test]
         fn user_signature_rejects_zklogin_flag() {
             assert!(UserSignature::from_bytes([0x05]).is_err());
+        }
+
+        #[test]
+        fn ml_dsa_65_user_signature_wire_round_trips() {
+            let authenticator = MlDsa65AuthenticatorV1::new(
+                crate::MlDsa65SigningIntentV1::new([1; 32], [2; 32], 3, 4, [5; 32]),
+                crate::MlDsa65Signature::new([6; crate::ML_DSA_65_SIGNATURE_LEN]),
+                crate::MlDsa65PublicKey::new([7; crate::ML_DSA_65_PUBLIC_KEY_LEN]),
+            );
+            let signature = UserSignature::MlDsa65Authenticator(authenticator);
+
+            assert_eq!(signature.scheme(), SignatureScheme::MlDsa65);
+            assert!(signature.to_public_key().is_err());
+            assert_eq!(
+                signature.to_bytes().len(),
+                crate::ML_DSA_65_AUTHENTICATOR_V1_LEN
+            );
+            assert_eq!(signature.to_bytes()[0], 0x08);
+
+            let bcs = bcs::to_bytes(&signature).unwrap();
+            assert_eq!(bcs.len(), crate::ML_DSA_65_AUTHENTICATOR_V1_BCS_LEN);
+            assert_eq!(&bcs[..3], &[0xc1, 0x2a, 0x08]);
+            assert_eq!(bcs::from_bytes::<UserSignature>(&bcs).unwrap(), signature);
+            assert_eq!(
+                UserSignature::from_base64(&signature.to_base64()).unwrap(),
+                signature
+            );
+
+            let json = serde_json::to_string(&signature).unwrap();
+            assert!(json.contains("\"scheme\":\"mldsa65\""));
+            assert_eq!(
+                serde_json::from_str::<UserSignature>(&json).unwrap(),
+                signature
+            );
         }
 
         #[test]

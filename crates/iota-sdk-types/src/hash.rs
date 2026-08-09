@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use blake2::Digest as DigestTrait;
@@ -197,6 +198,29 @@ impl crate::PasskeyPublicKey {
 impl From<crate::PasskeyPublicKey> for Address {
     fn from(public_key: crate::PasskeyPublicKey) -> Self {
         public_key.derive_address()
+    }
+}
+
+impl crate::MlDsa65PublicKey {
+    /// Derives `Blake2b-256(0x08 || public-key)`.
+    pub fn derive_address(&self) -> Address {
+        let mut hasher = Hasher::new();
+        hasher.update([self.scheme().to_u8()]);
+        hasher.update(self.as_bytes());
+        Address::new(hasher.finalize().into_inner())
+    }
+}
+
+impl From<crate::MlDsa65PublicKey> for Address {
+    fn from(public_key: crate::MlDsa65PublicKey) -> Self {
+        public_key.derive_address()
+    }
+}
+
+impl crate::MlDsa65AuthenticatorV1 {
+    /// Derives the signer address from the embedded public key.
+    pub fn derive_address(&self) -> Address {
+        self.public_key().derive_address()
     }
 }
 

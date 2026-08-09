@@ -1,0 +1,177 @@
+# Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
+name: Monolythium SDK CI
+
+on:
+  push:
+    branches:
+      - mono/main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mono-sdk-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate provenance and repository hygiene
+        shell: bash
+        run: |
+          python3 <<'PYTHON'
+          import fnmatch
+          import pathlib
+          import re
+          import subprocess
+
+          manifest = pathlib.Path("UPSTREAM.yaml").read_text().splitlines()
+          upstream_commit = next(
+              line.split(":", 1)[1].strip()
+              for line in manifest
+              if line.startswith("  commit: ")
+          )
+          if not re.fullmatch(r"[0-9a-f]{40}", upstream_commit):
+              raise SystemExit("invalid upstream commit")
+          subprocess.run(
+              ["git", "merge-base", "--is-ancestor", upstream_commit, "HEAD"],
+              check=True,
+          )
+
+          patterns = []
+          in_changes = False
+          in_paths = False
+          for line in manifest:
+              if line == "  tracked_changes:":
+                  in_changes = True
+                  continue
+              if in_changes and line and not line.startswith(" "):
+                  break
+              if not in_changes:
+                  continue
+              if line == "      paths:":
+                  in_paths = True
+                  continue
+              if in_paths and line.startswith("        - "):
+                  patterns.append(line.removeprefix("        - ").strip())
+                  continue
+              if in_paths and line.strip():
+                  in_paths = False
+
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", f"{upstream_commit}...HEAD"],
+              text=True,
+          ).splitlines()
+          uncovered = [
+              path
+              for path in changed
+              if not any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
+          ]
+          if uncovered:
+              raise SystemExit(
+                  "overlay paths missing from UPSTREAM.yaml:\n" + "\n".join(uncovered)
+              )
+
+          tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
+          guide_names = "|".join(("A" + "GENTS", "C" + "LAUDE", "G" + "EMINI"))
+          hidden_runtime = "." + "clau" + "de"
+          forbidden_names = re.compile(
+              rf"(^|/)({guide_names})\.md$|(^|/){re.escape(hidden_runtime)}/"
+          )
+          forbidden = [path for path in tracked if forbidden_names.search(path)]
+          if forbidden:
+              raise SystemExit(
+                  "runtime guidance is not repository content:\n" + "\n".join(forbidden)
+              )
+
+          text_suffixes = {
+              ".md", ".rs", ".toml", ".yaml", ".yml", ".sh", ".py", ".json"
+          }
+          private_markers = (
+              "/" + "home" + "/" + "black" + "well",
+              hidden_runtime + "/local",
+              "MONO_" + "IMPLEMENTATION_" + "PLAN",
+          )
+          for path in changed:
+              candidate = pathlib.Path(path)
+              if candidate.suffix not in text_suffixes or not candidate.exists():
+                  continue
+              text = candidate.read_text(errors="replace")
+              if any(marker in text for marker in private_markers):
+                  raise SystemExit(f"private workspace material found in {path}")
+          PYTHON
+
+      - name: Validate workflow safety
+        shell: bash
+        run: |
+          python3 <<'PYTHON'
+          import pathlib
+          import re
+
+          errors = []
+          action_pattern = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", re.MULTILINE)
+          for path in pathlib.Path(".github").rglob("*.yml"):
+              text = path.read_text()
+              for reference in action_pattern.findall(text):
+                  if reference.startswith("./"):
+                      continue
+                  if "@" not in reference or not re.fullmatch(
+                      r"[0-9a-f]{40}", reference.rsplit("@", 1)[1]
+                  ):
+                      errors.append(f"{path}: unpinned action {reference}")
+              if path.parent.name == "workflows":
+                  secret_expression = "$" + "{{ " + "secrets."
+                  inherited_secrets = "secrets:" + " inherit"
+                  if secret_expression in text or inherited_secrets in text:
+                      errors.append(f"{path}: secrets are forbidden")
+                  if re.search(r"^\s*[a-z-]+:\s*write\s*$", text, re.MULTILINE):
+                      errors.append(f"{path}: write permission is forbidden")
+                  if "pull_request_target:" in text or "workflow_run:" in text:
+                      errors.append(f"{path}: privileged trigger is forbidden")
+          if errors:
+              raise SystemExit("\n".join(errors))
+          PYTHON
+
+      - name: Validate Apache modification notices
+        shell: bash
+        run: |
+          upstream_commit="$({ awk '/^upstream:$/ { found=1; next } found && /^  commit:/ { print $2; exit }' UPSTREAM.yaml; })"
+          while IFS= read -r modified_file; do
+            if ! head -n 20 "${modified_file}" \
+              | grep -Fq "Modified by Mono Labs for the Monolythium IOTA Rust SDK"; then
+              echo "::error file=${modified_file}::modified upstream file lacks a change notice"
+              exit 1
+            fi
+          done < <(git diff --diff-filter=MR --name-only "${upstream_commit}...HEAD")
+          git diff --check "${upstream_commit}...HEAD"
+
+  rust:
+    name: Rust overlay
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install toolchain
+        shell: bash
+        run: rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+
+      - name: Test and lint canonical types
+        shell: bash
+        run: |
+          cargo +1.97.1 fmt --all -- --check
+          cargo +1.97.1 test --locked -p iota-sdk-types --features serde,hash
+          cargo +1.97.1 clippy --locked -p iota-sdk-types --all-targets --features serde,hash -- -D warnings

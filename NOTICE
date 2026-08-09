@@ -1,0 +1,12 @@
+Monolythium IOTA Rust SDK
+Copyright 2026 Mono Labs
+
+This product is derived from the IOTA Rust SDK, Copyright IOTA Foundation and
+its contributors, licensed under the Apache License, Version 2.0.
+
+Upstream source:
+  https://github.com/iotaledger/iota-rust-sdk.git
+  ef099ee58da63dda6e3d86de01d096ddd2e7aa89
+
+Files changed from the upstream source carry a prominent modification notice.
+The complete license text is provided in LICENSE.

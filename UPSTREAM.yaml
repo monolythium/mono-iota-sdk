@@ -1,0 +1,46 @@
+schema_version: 1
+
+fork:
+  name: Monolythium IOTA Rust SDK
+  repository: https://github.com/monolythium/mono-iota-sdk.git
+  release_branch: mono/main
+
+upstream:
+  name: IOTA Rust SDK
+  repository: https://github.com/iotaledger/iota-rust-sdk.git
+  commit: ef099ee58da63dda6e3d86de01d096ddd2e7aa89
+  adopted_on: 2026-08-09
+
+sync_policy:
+  upstream_remote: iota-upstream
+  preserve_history: true
+  published_branch_rebase: forbidden
+  update_branch_pattern: sync/iota-sdk-*
+  review_before_merge: true
+
+overlay_policy:
+  commit_trailer: Mono-Overlay
+  tracked_changes:
+    - id: MONO-SDK-BOOTSTRAP-001
+      license: Apache-2.0
+      paths:
+        - README.md
+        - NOTICE
+        - UPSTREAM.yaml
+        - ?GENTS.md
+        - ?LAUDE.md
+        - .github/**
+    - id: MONO-SDK-PQ-001
+      license: Apache-2.0
+      paths:
+        - Cargo.toml
+        - Cargo.lock
+        - crates/iota-sdk-types/Cargo.toml
+        - crates/iota-sdk-types/src/crypto/**
+        - crates/iota-sdk-types/src/hash.rs
+        - crates/iota-sdk-types/src/lib.rs
+        - crates/iota-sdk-types/tests/**
+
+validation:
+  workflow: .github/workflows/mono-ci.yml
+  actions_enabled: false

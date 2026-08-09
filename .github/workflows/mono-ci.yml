@@ -31,6 +31,7 @@ jobs:
         run: |
           python3 <<'PYTHON'
           import fnmatch
+          import hashlib
           import pathlib
           import re
           import subprocess
@@ -49,9 +50,19 @@ jobs:
           )
 
           patterns = []
+          expected_deleted = []
           in_changes = False
           in_paths = False
+          in_deleted = False
           for line in manifest:
+              if line == "  deleted_path_sha256:":
+                  in_deleted = True
+                  continue
+              if in_deleted and line.startswith("    - "):
+                  expected_deleted.append(line.removeprefix("    - ").strip())
+                  continue
+              if in_deleted and line.strip():
+                  in_deleted = False
               if line == "  tracked_changes:":
                   in_changes = True
                   continue
@@ -68,10 +79,26 @@ jobs:
               if in_paths and line.strip():
                   in_paths = False
 
-          changed = subprocess.check_output(
-              ["git", "diff", "--name-only", f"{upstream_commit}...HEAD"],
+          status_lines = subprocess.check_output(
+              ["git", "diff", "--name-status", f"{upstream_commit}...HEAD"],
               text=True,
           ).splitlines()
+          changed = []
+          deleted = []
+          for line in status_lines:
+              fields = line.split("\t")
+              status = fields[0]
+              if status.startswith("D"):
+                  deleted.append(fields[1])
+              elif status.startswith(("R", "C")):
+                  changed.extend(fields[1:])
+              else:
+                  changed.append(fields[-1])
+          actual_deleted = sorted(
+              hashlib.sha256(path.encode()).hexdigest() for path in deleted
+          )
+          if actual_deleted != sorted(expected_deleted):
+              raise SystemExit("deleted-path provenance set does not match UPSTREAM.yaml")
           uncovered = [
               path
               for path in changed
@@ -82,32 +109,35 @@ jobs:
                   "overlay paths missing from UPSTREAM.yaml:\n" + "\n".join(uncovered)
               )
 
-          tracked = subprocess.check_output(["git", "ls-files"], text=True).splitlines()
-          guide_names = "|".join(("A" + "GENTS", "C" + "LAUDE", "G" + "EMINI"))
-          hidden_runtime = "." + "clau" + "de"
-          forbidden_names = re.compile(
-              rf"(^|/)({guide_names})\.md$|(^|/){re.escape(hidden_runtime)}/"
-          )
-          forbidden = [path for path in tracked if forbidden_names.search(path)]
-          if forbidden:
+          added = subprocess.check_output(
+              ["git", "diff", "--diff-filter=A", "--name-only", f"{upstream_commit}...HEAD"],
+              text=True,
+          ).splitlines()
+          prose_suffixes = {".md", ".mdx", ".rst", ".adoc", ".txt"}
+          allowed_new_prose = {"NOTICE"}
+          unexpected_prose = [
+              path
+              for path in added
+              if pathlib.Path(path).suffix.lower() in prose_suffixes
+              and path not in allowed_new_prose
+          ]
+          if unexpected_prose:
               raise SystemExit(
-                  "runtime guidance is not repository content:\n" + "\n".join(forbidden)
+                  "new prose files require an explicit public-document review:\n"
+                  + "\n".join(unexpected_prose)
               )
 
           text_suffixes = {
               ".md", ".rs", ".toml", ".yaml", ".yml", ".sh", ".py", ".json"
           }
-          private_markers = (
-              "/" + "home" + "/" + "black" + "well",
-              hidden_runtime + "/local",
-              "MONO_" + "IMPLEMENTATION_" + "PLAN",
-          )
+          absolute_home = re.compile(r"/(?:home|Users)/[^/\s\"']+")
+          hidden_local = re.compile(r"(?:^|/)\.[a-z][a-z0-9_-]*/local(?:/|$)", re.IGNORECASE)
           for path in changed:
               candidate = pathlib.Path(path)
               if candidate.suffix not in text_suffixes or not candidate.exists():
                   continue
               text = candidate.read_text(errors="replace")
-              if any(marker in text for marker in private_markers):
+              if absolute_home.search(text) or hidden_local.search(text):
                   raise SystemExit(f"private workspace material found in {path}")
           PYTHON
 

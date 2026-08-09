@@ -20,6 +20,34 @@ sync_policy:
 
 overlay_policy:
   commit_trailer: Mono-Overlay
+  deleted_path_sha256:
+    - 13a4d93781d6a14f6338bec33f1efe8d1f0e966143c5cb20199562d938c5da09
+    - 16b515dbf9fa6b9fdcf7041af191900fe07e84a4d1519c9640923fc41c5521a6
+    - 1ad39fe431f432699e2fe931dc7e00e3c9adef29049b1cc46c8ad3160656d067
+    - 1db27d93186e46d3b441ece35801b244db8ee144ff1405ca27a163bfe878957f
+    - 3d36a1bf06148bc6ba1ce2ed3d19de32ea708d955fed212c0d27c536f0bd4da7
+    - 3e640bc06d3325efe95a7d0f21e807a7d438af4d88cd60ffda196efc2432810d
+    - 4343eca4ae7bfdc8085f6c0cc0286e38ccac3ad32a8372b7e50cea9d66901fa9
+    - 5cf8f4e0edfe5a793fb0c2d899c96da8ff4ad2576acb049664f361f435ed0f8f
+    - 5eda4de5fe42ed6a61e3996b0cda1f6f86d3f6868118a628315cfdc8a4b8dc28
+    - 5f78acaaea220d70af3427a7b9fbba83dbf6dbd38f8bf166fa2a0e8cd791ec91
+    - 61fc745d1fa6cba80b46594e213d189cdd235fa4340df2beeaadd2f67667b970
+    - 6ebdb617a8104a7756d0cf36578ab01103dc9f07e4dc6feb751296b9c402faf7
+    - 7985cab97a05bfe5fc9e7b10f0a11e6889e2eddf3f937bb16f85e14409e3b35e
+    - 7ec7eddd10dc81d7147a8a1165cbcf404fac44d6dbd4b82f0a92ddfda771af75
+    - 83f51e69e3f5f88be70325a2175960fbf992e0ae600cf4236355ecbc246dd319
+    - 8646df7398e23fb924a8a2eeb5d06a8e2eb1efa2ab26a81f98939909d8938a71
+    - 87db21a973eed4fef5f32b267aa60fcee5cbdf03c67fafdc2a9b553bb0b15f34
+    - 8b0e7d420d6dc29894f9115e65f12ab3f13d30a73a46f37cbdfa6daad107513d
+    - 8e2996588e2d87589653f2c7536c240f2e8e123ac897e83525ed28fbbdfae0f6
+    - 9612567e32a0a02130c314154e005de75bf7f2c0e8829eed9fda6e5def99305a
+    - a2115d277b5ca5a2f09a999e53440839cf332b94da177f3d1766334555b0f7c6
+    - a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9
+    - abef0df2daf7a320a52eaf5028ec6bd51b06a7ef9bc50aa2d3d7f28b436062d4
+    - c24fd68dc9cdef9206805d2b129cc11ed4625d9cc30e582d905cc3a6d483d556
+    - cde1573fdbf151e9a0bf2746335506bde4f312cbb73162c6040755e7fec1078f
+    - cf1286aa3650829dff1c26933a073a8c3e62b316e6162811d83fa0919a570af1
+    - fd5f0b4f9d94d40a9397a778af5abdd2b2ba4157170ea0ef9d65281fb58654f7
   tracked_changes:
     - id: MONO-SDK-BOOTSTRAP-001
       license: Apache-2.0
@@ -27,8 +55,6 @@ overlay_policy:
         - README.md
         - NOTICE
         - UPSTREAM.yaml
-        - ?GENTS.md
-        - ?LAUDE.md
         - .github/**
     - id: MONO-SDK-PQ-001
       license: Apache-2.0

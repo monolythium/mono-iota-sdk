@@ -166,7 +166,17 @@ jobs:
                       errors.append(f"{path}: secrets are forbidden")
                   if re.search(r"^\s*[a-z-]+:\s*write\s*$", text, re.MULTILINE):
                       errors.append(f"{path}: write permission is forbidden")
-                  if "pull_request_target:" in text or "workflow_run:" in text:
+                  privileged_triggers = (
+                      "pull_request_" + "target",
+                      "workflow_" + "run",
+                  )
+                  trigger_pattern = re.compile(
+                      r"^\s*(?:"
+                      + "|".join(map(re.escape, privileged_triggers))
+                      + r")\s*:",
+                      re.MULTILINE,
+                  )
+                  if trigger_pattern.search(text):
                       errors.append(f"{path}: privileged trigger is forbidden")
           if errors:
               raise SystemExit("\n".join(errors))

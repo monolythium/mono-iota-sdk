@@ -172,24 +172,34 @@ jobs:
                   if re.search(r"^\s*[a-z-]+:\s*write\s*$", text, re.MULTILINE):
                       errors.append(f"{path}: write permission is forbidden")
                   lines = text.splitlines()
-                  canonical_on = [
-                      index
-                      for index, line in enumerate(lines)
-                      if re.fullmatch(r"on:\s*(?:#.*)?", line)
-                  ]
-                  noncanonical_on = [
-                      line
-                      for line in lines
-                      if re.match(r"^(?:on|['\"]on['\"])\s*:", line)
-                      and not re.fullmatch(r"on:\s*(?:#.*)?", line)
-                  ]
-                  if len(canonical_on) != 1 or noncanonical_on:
+                  root_keys = {}
+                  root_syntax_is_valid = True
+                  for index, line in enumerate(lines):
+                      if (
+                          not line.strip()
+                          or line.lstrip().startswith("#")
+                          or line in {"---", "..."}
+                          or line[:1].isspace()
+                      ):
+                          continue
+                      root = re.fullmatch(r"([a-z][a-z0-9_-]*)\s*:(.*)", line)
+                      if root is None or root.group(1) in root_keys:
+                          root_syntax_is_valid = False
+                          break
+                      root_keys[root.group(1)] = (index, root.group(2))
+
+                  on_entry = root_keys.get("on")
+                  if (
+                      not root_syntax_is_valid
+                      or on_entry is None
+                      or not re.fullmatch(r"\s*(?:#.*)?", on_entry[1])
+                  ):
                       errors.append(f"{path}: workflow trigger syntax is noncanonical")
                       continue
 
                   event_names = set()
                   event_indent = None
-                  for line in lines[canonical_on[0] + 1 :]:
+                  for line in lines[on_entry[0] + 1 :]:
                       if not line.strip() or line.lstrip().startswith("#"):
                           continue
                       indent = len(line) - len(line.lstrip())

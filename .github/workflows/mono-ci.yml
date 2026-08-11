@@ -150,7 +150,12 @@ jobs:
 
           errors = []
           action_pattern = re.compile(r"^\s*(?:-\s*)?uses:\s*([^\s#]+)", re.MULTILINE)
-          for path in pathlib.Path(".github").rglob("*.yml"):
+          workflow_files = sorted(
+              path
+              for path in pathlib.Path(".github").rglob("*")
+              if path.suffix in {".yml", ".yaml"}
+          )
+          for path in workflow_files:
               text = path.read_text()
               for reference in action_pattern.findall(text):
                   if reference.startswith("./"):
@@ -166,7 +171,54 @@ jobs:
                       errors.append(f"{path}: secrets are forbidden")
                   if re.search(r"^\s*[a-z-]+:\s*write\s*$", text, re.MULTILINE):
                       errors.append(f"{path}: write permission is forbidden")
-                  if "pull_request_target:" in text or "workflow_run:" in text:
+                  lines = text.splitlines()
+                  root_keys = {}
+                  root_syntax_is_valid = True
+                  for index, line in enumerate(lines):
+                      if (
+                          not line.strip()
+                          or line.lstrip().startswith("#")
+                          or line[:1].isspace()
+                      ):
+                          continue
+                      root = re.fullmatch(r"([a-z][a-z0-9_-]*)\s*:(.*)", line)
+                      if root is None or root.group(1) in root_keys:
+                          root_syntax_is_valid = False
+                          break
+                      root_keys[root.group(1)] = (index, root.group(2))
+
+                  on_entry = root_keys.get("on")
+                  if (
+                      not root_syntax_is_valid
+                      or on_entry is None
+                      or not re.fullmatch(r"\s*(?:#.*)?", on_entry[1])
+                  ):
+                      errors.append(f"{path}: workflow trigger syntax is noncanonical")
+                      continue
+
+                  event_names = set()
+                  event_indent = None
+                  for line in lines[on_entry[0] + 1 :]:
+                      if not line.strip() or line.lstrip().startswith("#"):
+                          continue
+                      indent = len(line) - len(line.lstrip())
+                      if indent == 0:
+                          break
+                      if event_indent is None:
+                          event_indent = indent
+                      if indent != event_indent:
+                          continue
+                      event = re.fullmatch(r"([a-z0-9_-]+)\s*:.*", line.lstrip())
+                      if event is None:
+                          errors.append(f"{path}: workflow trigger syntax is noncanonical")
+                          break
+                      event_names.add(event.group(1))
+
+                  privileged_triggers = {
+                      "pull_request_" + "target",
+                      "workflow_" + "run",
+                  }
+                  if event_names & privileged_triggers:
                       errors.append(f"{path}: privileged trigger is forbidden")
           if errors:
               raise SystemExit("\n".join(errors))

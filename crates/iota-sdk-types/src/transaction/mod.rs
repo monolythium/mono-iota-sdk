@@ -1,5 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // Modifications Copyright (c) 2025 IOTA Stiftung
+// Modified by Mono Labs for the Monolythium IOTA Rust SDK, 2026.
 // SPDX-License-Identifier: Apache-2.0
 
 use super::{
@@ -185,6 +186,7 @@ pub struct RandomnessStateUpdate {
 ///                     =/ %d03                                        ; AuthenticatorStateUpdateV1Deprecated
 ///                     =/ %d04 (vector end-of-epoch-transaction-kind) ; EndOfEpoch
 ///                     =/ %d05 randomness-state-update                ; RandomnessStateUpdate
+///                     =/ %d06 mrv-transaction                        ; Mrv
 /// ```
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -208,6 +210,12 @@ pub enum TransactionKind {
     EndOfEpoch(Vec<EndOfEpochTransactionKind>),
     /// Randomness update
     RandomnessStateUpdate(RandomnessStateUpdate),
+    /// A versioned Monolythium RISC-V transaction payload.
+    ///
+    /// The payload is the canonical command BCS defined by `mono-mrv-types`.
+    /// This SDK type deliberately keeps those protocol-owned bytes opaque so
+    /// donor or SDK-local types cannot become an alternate MRV identity.
+    Mrv(MrvTransaction),
 }
 
 impl TransactionKind {
@@ -220,6 +228,7 @@ impl TransactionKind {
         Programmable(ProgrammableTransaction),
         Genesis(GenesisTransaction),
         EndOfEpoch(Vec<EndOfEpochTransactionKind>),
+        Mrv(MrvTransaction),
     }
 
     /// Create a [`TransactionKind::Programmable`].
@@ -247,6 +256,11 @@ impl TransactionKind {
         Self::RandomnessStateUpdate(tx)
     }
 
+    /// Create a [`TransactionKind::Mrv`].
+    pub fn new_mrv(tx: MrvTransaction) -> Self {
+        Self::Mrv(tx)
+    }
+
     /// Returns `true` if this is a system transaction.
     pub fn is_system(&self) -> bool {
         match self {
@@ -255,7 +269,7 @@ impl TransactionKind {
             | TransactionKind::AuthenticatorStateUpdateV1Deprecated
             | TransactionKind::RandomnessStateUpdate(_)
             | TransactionKind::EndOfEpoch(_) => true,
-            TransactionKind::Programmable(_) => false,
+            TransactionKind::Programmable(_) | TransactionKind::Mrv(_) => false,
         }
     }
 
@@ -263,6 +277,7 @@ impl TransactionKind {
     pub fn num_commands(&self) -> usize {
         match self {
             TransactionKind::Programmable(pt) => pt.commands.len(),
+            TransactionKind::Mrv(_) => 1,
             _ => 0,
         }
     }
@@ -271,6 +286,7 @@ impl TransactionKind {
     pub fn num_transactions(&self) -> usize {
         match self {
             TransactionKind::Programmable(pt) => pt.commands.len(),
+            TransactionKind::Mrv(_) => 1,
             _ => 1,
         }
     }
@@ -304,7 +320,692 @@ impl core::fmt::Display for TransactionKind {
             Self::RandomnessStateUpdate(_) => {
                 writeln!(f, "Transaction Kind : Randomness State Update")
             }
+            Self::Mrv(_) => writeln!(f, "Transaction Kind : MRV"),
         }
+    }
+}
+
+/// Maximum number of canonical command bytes carried by one MRV transaction.
+///
+/// The enclosing protocol still applies its stricter full signed-transaction
+/// size limit. In particular, reaching this payload ceiling does not imply
+/// that the command fits once sender, gas, and authenticator bytes are added.
+pub const MAX_MRV_TRANSACTION_COMMAND_BYTES: usize = 128 * 1024;
+
+/// Maximum number of object locks projected by one MRV transaction.
+///
+/// This matches the canonical MRV command's `u16`-indexed object-binding
+/// ceiling. The node separately applies the active protocol-wide input-object
+/// and full signed-transaction size limits before admitting the transaction.
+pub const MAX_MRV_INPUT_OBJECTS: usize = 256;
+
+/// Validation error for an SDK-level MRV transaction envelope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum MrvTransactionError {
+    /// The opaque canonical command exceeds the SDK transport ceiling.
+    #[error("MRV transaction command is too large: maximum {maximum} bytes, got {actual}")]
+    CommandTooLarge {
+        /// Actual command length.
+        actual: usize,
+        /// Maximum accepted command length.
+        maximum: usize,
+    },
+    /// The signed input-lock projection exceeds its structural ceiling.
+    #[error("MRV transaction has too many inputs: maximum {maximum}, got {actual}")]
+    TooManyInputObjects {
+        /// Actual input count.
+        actual: usize,
+        /// Maximum accepted input count.
+        maximum: usize,
+    },
+    /// Input locks are not strictly ordered by unique object id.
+    #[error("MRV transaction inputs must be strictly ordered by unique object id")]
+    InputObjectsNotCanonical,
+}
+
+/// Versioned MRV transaction envelope.
+///
+/// # BCS
+///
+/// ```text
+/// mrv-transaction = %d00 mrv-transaction-v1
+/// ```
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
+#[non_exhaustive]
+pub enum MrvTransaction {
+    /// Canonical MRV command envelope version one.
+    V1(MrvTransactionV1),
+}
+
+impl MrvTransaction {
+    crate::def_is_as_into_opt!(V1(MrvTransactionV1));
+
+    /// Constructs a version-one envelope from canonical command bytes.
+    pub fn new_v1(
+        input_objects: Vec<MrvInputObjectV1>,
+        command: Vec<u8>,
+    ) -> Result<Self, MrvTransactionError> {
+        MrvTransactionV1::new(input_objects, command).map(Self::V1)
+    }
+
+    /// Returns the signed input-lock projection without requiring callers to
+    /// match this non-exhaustive version envelope.
+    pub fn input_objects(&self) -> &[MrvInputObjectV1] {
+        match self {
+            Self::V1(transaction) => transaction.input_objects(),
+        }
+    }
+
+    /// Returns the opaque canonical command bytes without requiring callers
+    /// to match this non-exhaustive version envelope.
+    pub fn command(&self) -> &[u8] {
+        match self {
+            Self::V1(transaction) => transaction.command(),
+        }
+    }
+}
+
+/// One object lock required by a version-one MRV transaction.
+///
+/// This projection is intentionally small and contains everything consensus
+/// needs to lock inputs before charged command or artifact validation. The
+/// canonical command refers to these entries by index and must prove exact
+/// coverage at the authoritative execution boundary.
+///
+/// # BCS
+///
+/// ```text
+/// mrv-input-object-v1 = %d00 object-reference        ; ImmOrOwned
+///                     / %d01 shared-object-reference ; Shared
+/// ```
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
+pub enum MrvInputObjectV1 {
+    /// An exact immutable or address-owned object reference.
+    ImmOrOwned(ObjectReference),
+    /// A shared object lock with its initial version and requested mutability.
+    Shared(SharedObjectReference),
+}
+
+impl MrvInputObjectV1 {
+    /// Returns the locked object's id.
+    pub fn object_id(&self) -> &ObjectId {
+        match self {
+            Self::ImmOrOwned(reference) => &reference.object_id,
+            Self::Shared(reference) => &reference.object_id,
+        }
+    }
+}
+
+#[cfg(feature = "proptest")]
+fn arbitrary_mrv_input_objects_v1()
+-> impl proptest::strategy::Strategy<Value = Vec<MrvInputObjectV1>> {
+    use proptest::strategy::Strategy as _;
+
+    proptest::collection::vec(proptest::arbitrary::any::<MrvInputObjectV1>(), 0..=16).prop_map(
+        |mut input_objects| {
+            input_objects.sort_by_key(|input| *input.object_id());
+            input_objects.dedup_by_key(|input| *input.object_id());
+            input_objects
+        },
+    )
+}
+
+/// First SDK envelope for canonical MRV command bytes.
+///
+/// # BCS
+///
+/// ```text
+/// mrv-transaction-v1 = (vector mrv-input-object-v1) bytes
+/// ```
+///
+/// Human-readable Serde formats encode `command` as an incrementally bounded
+/// byte array. Canonical binary serialization is BCS.
+#[derive(Clone, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
+pub struct MrvTransactionV1 {
+    #[cfg_attr(feature = "proptest", strategy(arbitrary_mrv_input_objects_v1()))]
+    #[cfg_attr(feature = "serde", serde(with = "mrv_transaction_inputs"))]
+    input_objects: Vec<MrvInputObjectV1>,
+    #[cfg_attr(feature = "proptest", any(proptest::collection::size_range(0..=64).lift()))]
+    #[cfg_attr(feature = "serde", serde(with = "mrv_transaction_bytes"))]
+    command: Vec<u8>,
+}
+
+impl std::fmt::Debug for MrvTransactionV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MrvTransactionV1")
+            .field("input_object_count", &self.input_objects.len())
+            .field("command_len", &self.command.len())
+            .finish()
+    }
+}
+
+impl MrvTransactionV1 {
+    /// Constructs an opaque SDK envelope around canonical MRV command BCS.
+    ///
+    /// This transport layer enforces only structural transport invariants:
+    /// allocation bounds and canonical input ordering. The node's version-gated
+    /// MRV admission path parses and validates the command after deterministic
+    /// preparation work has been charged, so even malformed or empty bytes
+    /// remain representable here and fail at that authoritative boundary.
+    pub fn new(
+        input_objects: Vec<MrvInputObjectV1>,
+        command: Vec<u8>,
+    ) -> Result<Self, MrvTransactionError> {
+        validate_mrv_transaction_inputs(&input_objects)?;
+        validate_mrv_transaction_command(&command)?;
+        Ok(Self {
+            input_objects,
+            command,
+        })
+    }
+
+    /// Returns the signed, canonical input-lock projection.
+    pub fn input_objects(&self) -> &[MrvInputObjectV1] {
+        &self.input_objects
+    }
+
+    /// Returns the canonical command bytes exactly as signed on the wire.
+    pub fn command(&self) -> &[u8] {
+        &self.command
+    }
+
+    /// Consumes the envelope without discarding either signed component.
+    pub fn into_parts(self) -> (Vec<MrvInputObjectV1>, Vec<u8>) {
+        (self.input_objects, self.command)
+    }
+}
+
+fn validate_mrv_transaction_inputs(
+    input_objects: &[MrvInputObjectV1],
+) -> Result<(), MrvTransactionError> {
+    if input_objects.len() > MAX_MRV_INPUT_OBJECTS {
+        return Err(MrvTransactionError::TooManyInputObjects {
+            actual: input_objects.len(),
+            maximum: MAX_MRV_INPUT_OBJECTS,
+        });
+    }
+    if input_objects
+        .windows(2)
+        .any(|pair| pair[0].object_id() >= pair[1].object_id())
+    {
+        return Err(MrvTransactionError::InputObjectsNotCanonical);
+    }
+    Ok(())
+}
+
+fn validate_mrv_transaction_command(command: &[u8]) -> Result<(), MrvTransactionError> {
+    if command.len() > MAX_MRV_TRANSACTION_COMMAND_BYTES {
+        return Err(MrvTransactionError::CommandTooLarge {
+            actual: command.len(),
+            maximum: MAX_MRV_TRANSACTION_COMMAND_BYTES,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(feature = "serde")]
+mod mrv_transaction_inputs {
+    use std::fmt;
+
+    use serde::{
+        Deserializer, Serialize as _, Serializer,
+        de::{Error as _, SeqAccess, Visitor},
+        ser::Error as _,
+    };
+
+    use super::{MAX_MRV_INPUT_OBJECTS, MrvInputObjectV1, validate_mrv_transaction_inputs};
+
+    pub(super) fn serialize<SerializerType>(
+        inputs: &[MrvInputObjectV1],
+        serializer: SerializerType,
+    ) -> Result<SerializerType::Ok, SerializerType::Error>
+    where
+        SerializerType: Serializer,
+    {
+        validate_mrv_transaction_inputs(inputs).map_err(SerializerType::Error::custom)?;
+        inputs.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, DeserializerType>(
+        deserializer: DeserializerType,
+    ) -> Result<Vec<MrvInputObjectV1>, DeserializerType::Error>
+    where
+        DeserializerType: Deserializer<'de>,
+    {
+        let require_declared_length = !deserializer.is_human_readable();
+        deserializer.deserialize_seq(BoundedInputsVisitor {
+            require_declared_length,
+        })
+    }
+
+    struct BoundedInputsVisitor {
+        require_declared_length: bool,
+    }
+
+    impl<'de> Visitor<'de> for BoundedInputsVisitor {
+        type Value = Vec<MrvInputObjectV1>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "at most {MAX_MRV_INPUT_OBJECTS} canonical MRV input locks"
+            )
+        }
+
+        fn visit_seq<Access>(self, mut sequence: Access) -> Result<Self::Value, Access::Error>
+        where
+            Access: SeqAccess<'de>,
+        {
+            let declared = sequence.size_hint();
+            if self.require_declared_length && declared.is_none() {
+                return Err(Access::Error::custom(
+                    "binary MRV input sequence must declare its exact length",
+                ));
+            }
+            if let Some(declared) = declared
+                && declared > MAX_MRV_INPUT_OBJECTS
+            {
+                return Err(Access::Error::custom(format_args!(
+                    "MRV transaction has too many inputs: maximum {MAX_MRV_INPUT_OBJECTS}, got {declared}"
+                )));
+            }
+            let mut inputs = Vec::with_capacity(if self.require_declared_length {
+                declared.ok_or_else(|| {
+                    Access::Error::custom("binary MRV input sequence must declare its exact length")
+                })?
+            } else {
+                0
+            });
+            while let Some(input) = sequence.next_element()? {
+                if inputs.len() == MAX_MRV_INPUT_OBJECTS {
+                    return Err(Access::Error::custom(format_args!(
+                        "MRV transaction has too many inputs: maximum {MAX_MRV_INPUT_OBJECTS}"
+                    )));
+                }
+                inputs.push(input);
+            }
+            validate_mrv_transaction_inputs(&inputs).map_err(Access::Error::custom)?;
+            Ok(inputs)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod mrv_transaction_bytes {
+    use std::fmt;
+
+    use serde::{
+        Deserializer, Serialize as _, Serializer,
+        de::{Error as _, SeqAccess, Visitor},
+        ser::Error as _,
+    };
+
+    use super::{MAX_MRV_TRANSACTION_COMMAND_BYTES, validate_mrv_transaction_command};
+
+    pub(super) fn serialize<SerializerType>(
+        command: &[u8],
+        serializer: SerializerType,
+    ) -> Result<SerializerType::Ok, SerializerType::Error>
+    where
+        SerializerType: Serializer,
+    {
+        validate_mrv_transaction_command(command).map_err(SerializerType::Error::custom)?;
+        if serializer.is_human_readable() {
+            command.serialize(serializer)
+        } else {
+            serializer.serialize_bytes(command)
+        }
+    }
+
+    pub(super) fn deserialize<'de, DeserializerType>(
+        deserializer: DeserializerType,
+    ) -> Result<Vec<u8>, DeserializerType::Error>
+    where
+        DeserializerType: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            return deserializer.deserialize_seq(BoundedBytesVisitor {
+                require_declared_length: false,
+            });
+        }
+
+        deserializer.deserialize_seq(BoundedBytesVisitor {
+            require_declared_length: true,
+        })
+    }
+
+    struct BoundedBytesVisitor {
+        require_declared_length: bool,
+    }
+
+    impl<'de> Visitor<'de> for BoundedBytesVisitor {
+        type Value = Vec<u8>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                formatter,
+                "at most {MAX_MRV_TRANSACTION_COMMAND_BYTES} MRV command bytes"
+            )
+        }
+
+        fn visit_seq<Access>(self, mut sequence: Access) -> Result<Self::Value, Access::Error>
+        where
+            Access: SeqAccess<'de>,
+        {
+            let declared = sequence.size_hint();
+            if self.require_declared_length && declared.is_none() {
+                return Err(Access::Error::custom(
+                    "binary MRV command sequence must declare its exact length",
+                ));
+            }
+            if let Some(declared) = declared
+                && declared > MAX_MRV_TRANSACTION_COMMAND_BYTES
+            {
+                return Err(Access::Error::custom(format_args!(
+                    "MRV transaction command is too large: maximum {MAX_MRV_TRANSACTION_COMMAND_BYTES} bytes, got {declared}"
+                )));
+            }
+            let mut command = Vec::with_capacity(if self.require_declared_length {
+                declared.ok_or_else(|| {
+                    Access::Error::custom(
+                        "binary MRV command sequence must declare its exact length",
+                    )
+                })?
+            } else {
+                0
+            });
+            while let Some(byte) = sequence.next_element()? {
+                if command.len() == MAX_MRV_TRANSACTION_COMMAND_BYTES {
+                    return Err(Access::Error::custom(format_args!(
+                        "MRV transaction command is too large: maximum {MAX_MRV_TRANSACTION_COMMAND_BYTES} bytes"
+                    )));
+                }
+                command.push(byte);
+            }
+            validate_mrv_transaction_command(&command).map_err(Access::Error::custom)?;
+            Ok(command)
+        }
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod mrv_transaction_tests {
+    use std::io::Cursor;
+
+    use super::{
+        Address, GasPayment, MAX_MRV_INPUT_OBJECTS, MAX_MRV_TRANSACTION_COMMAND_BYTES,
+        MrvInputObjectV1, MrvTransaction, MrvTransactionError, MrvTransactionV1, ObjectId,
+        ObjectReference, SharedObjectReference, Transaction, TransactionExpiration,
+        TransactionKind, TransactionV1, Version,
+    };
+
+    fn shared_input(suffix: u16, mutable: bool) -> MrvInputObjectV1 {
+        MrvInputObjectV1::Shared(SharedObjectReference::new(
+            ObjectId::from_u16(suffix),
+            Version::from(1),
+            mutable,
+        ))
+    }
+    use crate::ObjectDigest;
+
+    #[test]
+    fn mrv_transaction_kind_bcs_tag_and_versions_are_stable() {
+        let kind = TransactionKind::new_mrv(
+            MrvTransaction::new_v1(vec![], vec![0xaa, 0xbb]).expect("valid command"),
+        );
+        assert_eq!(bcs::to_bytes(&kind).unwrap(), [6, 0, 0, 2, 0xaa, 0xbb]);
+
+        assert_eq!(
+            bcs::to_bytes(&TransactionKind::AuthenticatorStateUpdateV1Deprecated).unwrap(),
+            [3]
+        );
+        assert!(
+            bcs::from_bytes::<TransactionKind>(&[6, 1]).is_err(),
+            "unknown MRV envelope versions must fail closed"
+        );
+        assert!(
+            bcs::from_bytes::<TransactionKind>(&[7]).is_err(),
+            "unknown outer transaction-kind tags must fail closed"
+        );
+        assert!(
+            bcs::from_bytes::<TransactionKind>(&[6, 0, 0, 1, 0xaa, 0]).is_err(),
+            "trailing bytes must fail closed"
+        );
+    }
+
+    #[test]
+    fn mrv_transaction_input_projection_is_bounded_canonical_and_stable() {
+        let immutable = MrvInputObjectV1::ImmOrOwned(ObjectReference::new(
+            ObjectId::from_u16(1),
+            Version::from(2),
+            ObjectDigest::ZERO,
+        ));
+        let shared = shared_input(2, true);
+        assert_eq!(bcs::to_bytes(&immutable).unwrap()[0], 0);
+        assert_eq!(bcs::to_bytes(&shared).unwrap()[0], 1);
+
+        let envelope = MrvTransactionV1::new(vec![immutable, shared], vec![0xaa]).unwrap();
+        assert_eq!(envelope.input_objects(), &[immutable, shared]);
+        assert_eq!(
+            bcs::from_bytes::<MrvTransactionV1>(&bcs::to_bytes(&envelope).unwrap()).unwrap(),
+            envelope
+        );
+        let versioned = MrvTransaction::V1(envelope.clone());
+        assert_eq!(versioned.input_objects(), &[immutable, shared]);
+        assert_eq!(versioned.command(), &[0xaa]);
+        assert_eq!(envelope.into_parts(), (vec![immutable, shared], vec![0xaa]));
+
+        assert_eq!(
+            MrvTransactionV1::new(vec![shared, immutable], vec![]),
+            Err(MrvTransactionError::InputObjectsNotCanonical)
+        );
+        assert_eq!(
+            MrvTransactionV1::new(vec![immutable, immutable], vec![]),
+            Err(MrvTransactionError::InputObjectsNotCanonical)
+        );
+        let exact: Vec<_> = (1..=MAX_MRV_INPUT_OBJECTS)
+            .map(|suffix| shared_input(suffix as u16, false))
+            .collect();
+        let exact_envelope = MrvTransactionV1::new(exact.clone(), vec![]).unwrap();
+        assert_eq!(exact_envelope.input_objects(), exact);
+        assert_eq!(
+            bcs::from_bytes::<MrvTransactionV1>(&bcs::to_bytes(&exact_envelope).unwrap()).unwrap(),
+            exact_envelope
+        );
+        let cap_plus_one: Vec<_> = (1..=MAX_MRV_INPUT_OBJECTS + 1)
+            .map(|suffix| shared_input(suffix as u16, false))
+            .collect();
+        assert_eq!(
+            MrvTransactionV1::new(cap_plus_one, vec![]),
+            Err(MrvTransactionError::TooManyInputObjects {
+                actual: MAX_MRV_INPUT_OBJECTS + 1,
+                maximum: MAX_MRV_INPUT_OBJECTS,
+            })
+        );
+
+        let internally_invalid = MrvTransactionV1 {
+            input_objects: vec![shared, immutable],
+            command: vec![],
+        };
+        assert!(bcs::to_bytes(&internally_invalid).is_err());
+        assert!(serde_json::to_string(&internally_invalid).is_err());
+
+        // Canonical ULEB128 for 257, one entry above the projection bound.
+        let hostile_prefix = [0x81, 0x02];
+        for result in [
+            bcs::from_bytes::<MrvTransactionV1>(&hostile_prefix),
+            bcs::from_reader::<MrvTransactionV1>(Cursor::new(hostile_prefix)),
+        ] {
+            let error = result.expect_err("oversize input count must fail before entry decode");
+            assert!(error.to_string().contains("too many inputs"));
+            assert!(!error.to_string().contains("end of input"));
+        }
+    }
+
+    #[test]
+    fn mrv_transaction_command_exact_bound_round_trips_and_cap_plus_one_fails() {
+        let exact = vec![0x5a; MAX_MRV_TRANSACTION_COMMAND_BYTES];
+        let envelope = MrvTransactionV1::new(vec![], exact.clone()).expect("exact bound accepted");
+        let encoded = bcs::to_bytes(&envelope).unwrap();
+        assert_eq!(
+            bcs::from_bytes::<MrvTransactionV1>(&encoded)
+                .unwrap()
+                .command(),
+            exact
+        );
+
+        assert_eq!(
+            MrvTransactionV1::new(vec![], vec![0; MAX_MRV_TRANSACTION_COMMAND_BYTES + 1]),
+            Err(MrvTransactionError::CommandTooLarge {
+                actual: MAX_MRV_TRANSACTION_COMMAND_BYTES + 1,
+                maximum: MAX_MRV_TRANSACTION_COMMAND_BYTES,
+            })
+        );
+        assert!(MrvTransactionV1::new(vec![], vec![]).is_ok());
+    }
+
+    #[test]
+    fn mrv_transaction_hostile_declared_length_rejects_before_payload_read() {
+        // Canonical ULEB128 for 131_073, one byte above the transport bound.
+        let hostile_prefix = [0, 0x81, 0x80, 0x08];
+        for result in [
+            bcs::from_bytes::<MrvTransactionV1>(&hostile_prefix),
+            bcs::from_reader::<MrvTransactionV1>(Cursor::new(hostile_prefix)),
+        ] {
+            let error = result.expect_err("oversize declared length must fail");
+            let message = error.to_string();
+            assert!(message.contains("too large"), "unexpected error: {message}");
+            assert!(
+                !message.contains("end of input"),
+                "late EOF error: {message}"
+            );
+        }
+
+        let full_kind_prefix = [6, 0, 0, 0x81, 0x80, 0x08];
+        let error = bcs::from_reader::<TransactionKind>(Cursor::new(full_kind_prefix))
+            .expect_err("full transaction kind must preserve the inner bound");
+        assert!(error.to_string().contains("too large"));
+    }
+
+    #[test]
+    fn mrv_transaction_json_bytes_are_incrementally_bounded_and_round_trip() {
+        let envelope = MrvTransactionV1::new(vec![], vec![0, 1, 2, 3]).unwrap();
+        let json = serde_json::to_string(&envelope).unwrap();
+        assert_eq!(json, r#"{"input_objects":[],"command":[0,1,2,3]}"#);
+        assert_eq!(
+            serde_json::from_str::<MrvTransactionV1>(&json).unwrap(),
+            envelope
+        );
+
+        let kind = TransactionKind::new_mrv(MrvTransaction::V1(envelope));
+        let nested = serde_json::to_string(&kind).unwrap();
+        assert_eq!(
+            nested,
+            r#"{"Mrv":{"V1":{"input_objects":[],"command":[0,1,2,3]}}}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<TransactionKind>(&nested).unwrap(),
+            kind
+        );
+
+        let mut oversized = String::from(r#"{"input_objects":[],"command":["#);
+        for index in 0..=MAX_MRV_TRANSACTION_COMMAND_BYTES {
+            if index != 0 {
+                oversized.push(',');
+            }
+            oversized.push('0');
+        }
+        oversized.push_str("]}");
+        let error = serde_json::from_str::<MrvTransactionV1>(&oversized)
+            .expect_err("oversize JSON byte sequence must fail incrementally");
+        assert!(error.to_string().contains("too large"));
+
+        let shared_json = serde_json::to_string(&shared_input(1, false)).unwrap();
+        let mut oversized_inputs = String::from(r#"{"input_objects":["#);
+        for index in 0..=MAX_MRV_INPUT_OBJECTS {
+            if index != 0 {
+                oversized_inputs.push(',');
+            }
+            oversized_inputs.push_str(&shared_json);
+        }
+        oversized_inputs.push_str(r#"],"command":[]}"#);
+        let error = serde_json::from_str::<MrvTransactionV1>(&oversized_inputs)
+            .expect_err("oversize JSON input projection must fail incrementally");
+        assert!(error.to_string().contains("too many inputs"));
+    }
+
+    #[test]
+    fn mrv_transaction_nonempty_projection_bcs_and_json_are_stable() {
+        let envelope = MrvTransactionV1::new(
+            vec![
+                MrvInputObjectV1::ImmOrOwned(ObjectReference::new(
+                    ObjectId::from_u16(1),
+                    Version::from(2),
+                    ObjectDigest::ZERO,
+                )),
+                shared_input(2, true),
+            ],
+            vec![0xaa],
+        )
+        .unwrap();
+        assert_eq!(
+            hex::encode(bcs::to_bytes(&envelope).unwrap()),
+            "02000000000000000000000000000000000000000000000000000000000000000001020000000000000020000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000201000000000000000101aa"
+        );
+        assert_eq!(
+            serde_json::to_string(&envelope).unwrap(),
+            r#"{"input_objects":[{"ImmOrOwned":{"object_id":"0x0000000000000000000000000000000000000000000000000000000000000001","version":"2","digest":"11111111111111111111111111111111"}},{"Shared":{"object_id":"0x0000000000000000000000000000000000000000000000000000000000000002","initial_shared_version":"1","mutable":true}}],"command":[170]}"#
+        );
+    }
+
+    #[cfg(feature = "hash")]
+    #[test]
+    fn mrv_transaction_full_transaction_bcs_and_signing_digest_are_stable() {
+        let transaction = Transaction::V1(TransactionV1 {
+            kind: TransactionKind::new_mrv(
+                MrvTransaction::new_v1(vec![], vec![0xaa, 0xbb]).expect("valid command"),
+            ),
+            sender: Address::ZERO,
+            gas_payment: GasPayment {
+                objects: vec![],
+                owner: Address::ZERO,
+                price: 1,
+                budget: 2,
+            },
+            expiration: TransactionExpiration::None,
+        });
+
+        let bcs_hex = hex::encode(bcs::to_bytes(&transaction).unwrap());
+        assert_eq!(
+            bcs_hex,
+            "0006000002aabb00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000020000000000000000"
+        );
+        assert_eq!(
+            transaction.signing_digest_hex(),
+            "7d38bcfe25c1f457a31fb815ef38fe455eba5aa29209b15ca238d86d40d1f171"
+        );
+    }
+
+    #[test]
+    fn mrv_transaction_debug_is_length_only() {
+        let envelope = MrvTransactionV1::new(vec![], vec![0xaa; 4]).unwrap();
+        let debug = format!("{envelope:?}");
+        assert_eq!(
+            debug,
+            "MrvTransactionV1 { input_object_count: 0, command_len: 4 }"
+        );
+        assert!(!debug.contains("170"));
     }
 }
 
@@ -969,9 +1670,16 @@ impl Input {
 }
 
 /// A shared object input to a programmable transaction
+///
+/// # BCS
+///
+/// ```text
+/// shared-object-reference = object-id u64 bool
+/// ```
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "proptest", derive(test_strategy::Arbitrary))]
+#[cfg_attr(feature = "bcs-schema", derive(iota_bcs_schema::BcsSchema))]
 pub struct SharedObjectReference {
     pub object_id: ObjectId,
     pub initial_shared_version: Version,

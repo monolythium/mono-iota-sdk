@@ -88,6 +88,14 @@ overlay_policy:
         - crates/iota-sdk-grpc-client/src/lib.rs
         - crates/iota-sdk-grpc-client/src/api/ledger/checkpoints.rs
         - crates/iota-sdk-grpc-client/src/api/mod.rs
+    - id: MONO-SDK-MRV-TRANSACTION-001
+      license: Apache-2.0
+      paths:
+        - crates/iota-sdk-types/bcs-schema.abnf
+        - crates/iota-sdk-types/src/lib.rs
+        - crates/iota-sdk-types/src/serialization_proptests.rs
+        - crates/iota-sdk-types/src/transaction/mod.rs
+        - crates/iota-sdk-types/tests/bcs_schema_fuzzing.rs
 
 validation:
   workflow: .github/workflows/mono-ci.yml

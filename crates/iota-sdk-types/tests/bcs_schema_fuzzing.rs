@@ -415,6 +415,7 @@ impl TestHarness {
             "mono-checkpoint-authentication-bytes",
             Self::gen_mono_checkpoint_authentication_bytes,
         );
+        overrides.insert("mrv-transaction-v1", Self::gen_mrv_transaction_v1);
         overrides.insert("move-struct", Self::gen_move_struct);
 
         Self {
@@ -522,6 +523,38 @@ impl TestHarness {
         let mut content = vec![0u8; len];
         self.rng.fill_bytes(&mut content);
         out.extend(content);
+        out
+    }
+
+    /// Generate a canonical MRV lock projection followed by opaque command
+    /// bytes. ABNF can express the bounded vector wire, but not the semantic
+    /// requirement that object ids are strictly increasing and unique.
+    fn gen_mrv_transaction_v1(&mut self) -> Vec<u8> {
+        let count = (self.rng.next_u32() as usize) % 6;
+        let mut out = encode_uleb128(count as u64);
+        for index in 0..count {
+            let mut object_id = [0u8; 32];
+            object_id[30..].copy_from_slice(&((index + 1) as u16).to_be_bytes());
+            if self.rng.next_u32() & 1 == 0 {
+                out.push(0); // ImmOrOwned
+                out.extend(object_id);
+                out.extend(self.rng.next_u64().to_le_bytes());
+                let mut digest = [0u8; 32];
+                self.rng.fill_bytes(&mut digest);
+                out.push(32); // historical Digest byte-length prefix
+                out.extend(digest);
+            } else {
+                out.push(1); // Shared
+                out.extend(object_id);
+                out.extend(self.rng.next_u64().to_le_bytes());
+                out.push((self.rng.next_u32() & 1) as u8);
+            }
+        }
+        let command_len = (self.rng.next_u32() as usize) % 17;
+        out.extend(encode_uleb128(command_len as u64));
+        let mut command = vec![0u8; command_len];
+        self.rng.fill_bytes(&mut command);
+        out.extend(command);
         out
     }
 
@@ -789,6 +822,9 @@ fn grammar_driven_fuzzing() {
     test.check_rule::<MoveCall>("move-call");
     test.check_rule::<MoveLocation>("move-location");
     test.check_rule::<MonoCheckpointAuthenticationBytes>("mono-checkpoint-authentication-bytes");
+    test.check_rule::<MrvInputObjectV1>("mrv-input-object-v1");
+    test.check_rule::<MrvTransaction>("mrv-transaction");
+    test.check_rule::<MrvTransactionV1>("mrv-transaction-v1");
     test.check_rule::<Object>("object");
     test.check_rule::<ObjectId>("object-id");
     test.check_rule::<ObjectIn>("object-in");
@@ -799,6 +835,7 @@ fn grammar_driven_fuzzing() {
     test.check_rule::<ProgrammableTransaction>("programmable-transaction");
     test.check_rule::<Publish>("publish");
     test.check_rule::<RandomnessStateUpdate>("randomness-state-update");
+    test.check_rule::<SharedObjectReference>("shared-object-reference");
     test.check_rule::<SignedCheckpointSummary>("signed-checkpoint-summary");
     test.check_rule::<SignedTransaction>("signed-transaction");
     test.check_rule::<SplitCoins>("split-coins");

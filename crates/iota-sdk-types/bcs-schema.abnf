@@ -305,6 +305,14 @@ move-struct = compressed-struct-tag   ; object-type
               version                 ; version
               bytes                   ; contents
 
+mrv-input-object-v1 = %d00 object-reference          ; ImmOrOwned
+                    / %d01 shared-object-reference   ; Shared
+
+mrv-transaction = %d00 mrv-transaction-v1   ; V1
+
+mrv-transaction-v1 = (size *mrv-input-object-v1)   ; input-objects
+                     bytes                         ; command
+
 object = object-data          ; data
          owner                ; owner
          transaction-digest   ; previous-transaction
@@ -358,6 +366,10 @@ randomness-state-update = u64                ; epoch
                           version            ; randomness-obj-initial-shared-version
 
 sender-signed-data-digest = digest
+
+shared-object-reference = object-id   ; object-id
+                          version     ; initial-shared-version
+                          bool        ; mutable
 
 signed-checkpoint-summary = checkpoint-summary               ; checkpoint
                             validator-aggregated-signature   ; signature
@@ -414,6 +426,7 @@ transaction-kind = %d00 programmable-transaction                ; Programmable
                  / %d03                                         ; AuthenticatorStateUpdateV1Deprecated
                  / %d04 (size *end-of-epoch-transaction-kind)   ; EndOfEpoch
                  / %d05 randomness-state-update                 ; RandomnessStateUpdate
+                 / %d06 mrv-transaction                         ; Mrv
 
 transaction-v1 = transaction-kind         ; kind
                  address                  ; sender
